@@ -1,0 +1,36 @@
+{
+  "name": "barberflow",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm build:packages && pnpm -r --parallel --filter './apps/*' dev",
+    "dev:api": "pnpm --filter @barberflow/api dev",
+    "dev:web": "pnpm --filter @barberflow/web dev",
+    "dev:worker": "pnpm --filter @barberflow/worker dev",
+    "build": "pnpm build:packages && pnpm -r --filter './apps/*' build",
+    "typecheck": "pnpm build:packages && pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "test:e2e": "playwright test --trace off",
+    "db:generate": "pnpm --filter @barberflow/db generate",
+    "db:migrate": "pnpm --filter @barberflow/db migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @barberflow/db migrate:dev",
+    "db:seed": "pnpm --filter @barberflow/db seed",
+    "db:reset": "pnpm --filter @barberflow/db reset",
+    "build:packages": "pnpm --filter @barberflow/shared build && pnpm --filter @barberflow/db build"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@next/eslint-plugin-next": "16.4.6",
+    "@playwright/test": "1.63.0",
+    "eslint": "9.39.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "globals": "16.5.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.2"
+  }
+}

@@ -1,0 +1,51 @@
+# Local development stack.
+#   docker compose up -d postgres          # only the database (recommended with `pnpm dev`)
+#   docker compose --profile app up --build # database + api + worker + web in containers
+# NOTE: this file was written for the MVP but could not be executed in the authoring environment
+# (no Docker daemon); the stack itself was verified with a local PostgreSQL 16.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: barberflow
+      POSTGRES_PASSWORD: barberflow
+      POSTGRES_DB: barberflow
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barberflow"]
+      interval: 5s
+      retries: 10
+
+  api:
+    profiles: ["app"]
+    build: { context: ., dockerfile: Dockerfile }
+    command: sh -c "pnpm db:migrate && node apps/api/dist/main.js"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://barberflow:barberflow@postgres:5432/barberflow?schema=public
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["4000:4000"]
+
+  worker:
+    profiles: ["app"]
+    build: { context: ., dockerfile: Dockerfile }
+    command: node apps/worker/dist/index.js
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://barberflow:barberflow@postgres:5432/barberflow?schema=public
+    depends_on: [api]
+
+  web:
+    profiles: ["app"]
+    build: { context: ., dockerfile: Dockerfile }
+    command: sh -c "cd apps/web && npx next start --port 3000"
+    environment:
+      API_INTERNAL_URL: http://api:4000
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
