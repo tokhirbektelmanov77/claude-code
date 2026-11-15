@@ -131,7 +131,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-2 pt-2">
               <LanguageSwitch />
-              <Button asChild variant="ghost" size="sm"><Link href="/me">{t('nav.myBookings')}</Link></Button>
+              <Button asChild variant="ghost" size="sm"><Link href="/account">{t('me.account')}</Link></Button>
               <Button variant="ghost" size="sm" onClick={logout} className="ml-auto"><LogOut />{t('common.logout')}</Button>
             </div>
           </div>
@@ -147,6 +147,7 @@ export default function CabinetLayout({ children }: { children: React.ReactNode 
   const { t } = useI18n();
   React.useEffect(() => {
     if (me.data === null) router.replace('/login?next=/app');
+    else if (me.data?.mustChangePassword) router.replace('/account?change=1');
   }, [me.data, router]);
   if (me.isLoading || me.data === null) return <div className="grid min-h-dvh place-items-center"><Spinner /></div>;
   if (me.isError || !me.data) return <div className="grid min-h-dvh place-items-center"><Button onClick={() => me.refetch()}>{t('common.retry')}</Button></div>;
@@ -157,7 +158,7 @@ export default function CabinetLayout({ children }: { children: React.ReactNode 
         <h1 className="text-[22px] font-semibold tracking-tight">{t('cabinet.noBusiness')}</h1>
         <p className="text-fg-muted">{t('cabinet.noBusinessText')}</p>
         <Button asChild size="lg"><Link href="/onboarding">{t('cabinet.createBusiness')}</Link></Button>
-        <Button asChild variant="ghost"><Link href="/me">{t('nav.myBookings')}</Link></Button>
+        <Button asChild variant="ghost"><Link href="/account">{t('me.account')}</Link></Button>
       </div>
     );
   }

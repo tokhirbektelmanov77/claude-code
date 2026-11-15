@@ -10,3 +10,5 @@ export function createPrismaClient(url?: string): PrismaClient {
 /** Postgres SQLSTATE raised by the appointment exclusion constraint. */
 export const PG_EXCLUSION_VIOLATION = '23P01';
 export const APPOINTMENT_OVERLAP_CONSTRAINT = 'appointment_no_overlap';
+
+export { hashPassword, verifyPassword, temporaryPassword } from './password';

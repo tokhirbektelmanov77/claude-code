@@ -59,7 +59,7 @@ export interface AppointmentDto {
   endsAt: string;
   blockedUntil: string;
   status: AppointmentStatus;
-  source: 'ONLINE' | 'TELEGRAM' | 'MANUAL';
+  source: 'ONLINE' | 'MANUAL';
   priceUzs: number;
   durationMin: number;
   serviceName: string;
@@ -76,9 +76,14 @@ export interface MeDto {
   name: string | null;
   locale: 'ru' | 'uz';
   isPlatformAdmin: boolean;
-  telegramLinked: boolean;
+  mustChangePassword: boolean;
   memberships: { businessId: string; businessName: string; businessSlug: string; role: MemberRole; onboardingStep: number; barberId: string | null }[];
-  pendingInvitations: { id: string; businessName: string; role: MemberRole }[];
+}
+
+/** Returned once after a guest booking: the manage token is never retrievable again. */
+export interface GuestBookingResult extends AppointmentDto {
+  manageToken: string;
+  replayed?: boolean;
 }
 
 export interface ApiErrorBody {
@@ -97,8 +102,10 @@ export const ErrorCodes = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   VALIDATION: 'VALIDATION_ERROR',
   RATE_LIMITED: 'RATE_LIMITED',
-  OTP_INVALID: 'OTP_INVALID',
-  OTP_EXPIRED: 'OTP_EXPIRED',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  PHONE_TAKEN: 'PHONE_TAKEN',
+  TOO_MANY_BOOKINGS: 'TOO_MANY_BOOKINGS',
   BUSINESS_BLOCKED: 'BUSINESS_BLOCKED',
   BOOKING_DISABLED: 'BOOKING_DISABLED',
   CANCEL_TOO_LATE: 'CANCEL_TOO_LATE',

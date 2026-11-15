@@ -3,12 +3,14 @@
  *  - refuses to run with NODE_ENV=production unless SEED_ALLOW_PRODUCTION=true;
  *  - only deletes/recreates businesses flagged is_demo (matched by their demo slugs);
  *  - creates subscription plans only if missing (admin-edited prices are never overwritten);
- *  - demo users use reserved fake numbers +99890000000X.
+ *  - demo staff users use reserved fake numbers +99890000000X and the dev-only password below.
  *
  * Guarantees the demo scenario: barber "Азиз", "Мужская стрижка" 45 min / 100 000 UZS,
  * 17 Nov 2026 16:00–16:45 Asia/Tashkent is FREE to book.
  */
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaClient, AppointmentStatus, Prisma } from '@prisma/client';
+import { hashPassword } from '../src/password';
 import { DateTime } from 'luxon';
 import { computeDaySlots, localTimeToUtc } from '@barberflow/shared';
 
@@ -21,15 +23,18 @@ const PHONES = {
   admin: '+998900000001',
   owner: '+998900000002',
   aziz: '+998900000003',
-  client: '+998900000004',
   solo: '+998900000005',
 };
+const CLIENT_PHONE = '+998900000004'; // demo client: no account (guests book with name + phone)
+/** DEVELOPMENT ONLY demo password for every seeded staff account. */
+const DEMO_PASSWORD = 'barberflow-demo';
 
 async function upsertUser(phone: string, name: string, extra: Prisma.UserUpdateInput = {}) {
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
   return prisma.user.upsert({
     where: { phone },
-    update: { name, deletedAt: null, ...extra },
-    create: { phone, name, privacyAcceptedAt: new Date(), ...(extra as Prisma.UserCreateInput) },
+    update: { name, deletedAt: null, passwordHash, mustChangePassword: false, failedLoginCount: 0, lockedUntil: null, ...extra },
+    create: { phone, name, passwordHash, privacyAcceptedAt: new Date(), ...(extra as Prisma.UserCreateInput) },
   });
 }
 
@@ -66,10 +71,11 @@ async function main() {
   if (strayBarbers) throw new Error('Demo barber slugs are used by a non-demo business; refusing to continue.');
 
   // ---- Users ----
+  // Earlier versions had a client account for the demo client; clients no longer have accounts.
+  await prisma.user.deleteMany({ where: { phone: CLIENT_PHONE, memberships: { none: {} } } });
   const admin = await upsertUser(PHONES.admin, 'Platform Admin', { platformRole: 'PLATFORM_ADMIN' });
   const owner = await upsertUser(PHONES.owner, 'Demo Owner');
   const azizUser = await upsertUser(PHONES.aziz, 'Азиз');
-  const client = await upsertUser(PHONES.client, 'Demo Client');
   const soloOwner = await upsertUser(PHONES.solo, 'Jasur');
 
   // ---- Business ----
@@ -166,19 +172,20 @@ async function main() {
     );
   }
   const demoClientCustomer = await prisma.customer.create({
-    data: { businessId: business.id, userId: client.id, name: 'Demo Client', phone: PHONES.client, consentAt: new Date() },
+    data: { businessId: business.id, name: 'Demo Client', phone: CLIENT_PHONE, consentAt: new Date() },
   });
 
   // ---- Appointments ----
   let n = 0;
-  async function appt(barberId: string, service: typeof services.haircut, startUtc: Date, status: AppointmentStatus, customerId: string, source: 'ONLINE' | 'MANUAL' = 'ONLINE') {
+  async function appt(barberId: string, service: typeof services.haircut, startUtc: Date, status: AppointmentStatus, customerId: string, source: 'ONLINE' | 'MANUAL' = 'ONLINE', manageTokenHash: string | null = null) {
     const end = new Date(startUtc.getTime() + service.durationMin * 60_000);
     const a = await prisma.appointment.create({
       data: {
         businessId: business.id, branchId: branch.id, barberId, serviceId: service.id, customerId, startsAt: startUtc, endsAt: end,
         blockedUntil: new Date(end.getTime() + service.bufferAfterMin * 60_000), status, source,
         priceUzs: service.priceUzs, durationMin: service.durationMin, bufferAfterMin: service.bufferAfterMin, serviceName: service.name,
-        createdByUserId: owner.id,
+        createdByUserId: source === 'MANUAL' ? owner.id : null,
+        manageTokenHash,
         cancelledAt: status === 'CANCELLED' ? new Date() : null,
         completedAt: status === 'COMPLETED' ? end : null,
       },
@@ -223,7 +230,10 @@ async function main() {
   }
   // Future booking for the demo client (visible in "Мои записи").
   const clientDay = now.plus({ days: 3 }).toISODate()!;
-  await appt(timur.id, services.beard, localTimeToUtc(clientDay, hm(12), TZ), 'CONFIRMED', demoClientCustomer.id);
+  // Its secret manage link is printed below (in real life the client receives it right after booking).
+  const demoManageToken = randomBytes(32).toString('base64url');
+  await appt(timur.id, services.beard, localTimeToUtc(clientDay, hm(12), TZ), 'CONFIRMED', demoClientCustomer.id, 'ONLINE',
+    createHash('sha256').update(demoManageToken).digest('hex'));
   // A past completed visit so "Записаться снова" can be demonstrated.
   await appt(aziz.id, services.haircut, localTimeToUtc(now.minus({ days: 8 }).toISODate()!, hm(16), TZ), 'COMPLETED', demoClientCustomer.id);
 
@@ -279,12 +289,12 @@ async function main() {
   console.log(`  Business:      BARBERFLOW DEMO  →  /s/barberflow-demo   (barber link: /b/aziz)`);
   console.log(`  Appointments:  ${n}`);
   console.log(`  Demo slot 17.11.2026 16:00–16:45 (Азиз, Мужская стрижка, 100 000 UZS): ${free ? 'FREE ✓' : 'NOT AVAILABLE (date passed or outside horizon)'}`);
-  console.log('  Logins (OTP dev mode shows the code on screen):');
+  console.log(`  Staff logins (password for all: ${DEMO_PASSWORD} — development only):`);
   console.log(`    Platform admin  ${PHONES.admin}`);
   console.log(`    Owner           ${PHONES.owner}`);
   console.log(`    Barber Азиз     ${PHONES.aziz}`);
-  console.log(`    Client          ${PHONES.client}`);
   console.log(`    Solo owner      ${PHONES.solo}`);
+  console.log(`  Demo client booking (guest, no account): /a/${demoManageToken}`);
 }
 
 main()

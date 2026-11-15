@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login, PHONES } from './helpers';
+import { freshPhone, login, PHONES } from './helpers';
 
 test.describe('barber & owner cabinets (desktop)', () => {
   test('owner dashboard shows real numbers and the price-value disclaimer', async ({ page }) => {
@@ -63,6 +63,46 @@ test.describe('barber & owner cabinets (desktop)', () => {
     expect((await page.request.get('/api/platform-admin/overview')).status()).toBe(403);
     await page.goto('/platform-admin');
     await expect(page.getByText('Раздел доступен только администраторам платформы.')).toBeVisible();
+  });
+
+  test('owner invites a barber by secret link; the barber signs up there and joins the team', async ({ page, browser }) => {
+    await login(page, PHONES.owner, '/app/staff');
+    await page.goto('/app/staff');
+    await page.getByRole('button', { name: 'Пригласить' }).click();
+    await page.getByTestId('create-invite').click();
+    const link = (await page.getByTestId('invite-link').locator('span.font-mono').textContent())!;
+    expect(link).toMatch(/\/invite\/[A-Za-z0-9_-]{43}$/);
+
+    const barber = await browser.newPage();
+    await barber.goto(link);
+    await expect(barber.getByTestId('invite-text')).toContainText('BARBERFLOW DEMO');
+    await barber.getByTestId('auth-name').fill('Новый барбер');
+    await barber.getByTestId('auth-phone').fill(freshPhone());
+    await barber.getByTestId('auth-password').fill('barber-password-1');
+    await barber.getByTestId('auth-submit').click();
+    await barber.getByTestId('accept-invite').click();
+    await barber.waitForURL('**/app/**');
+    await barber.close();
+
+    await page.reload();
+    await expect(page.getByText('Новый барбер')).toBeVisible();
+  });
+
+  test('forgotten password: owner issues a temporary one, the barber must change it', async ({ page, browser }) => {
+    await login(page, PHONES.owner, '/app/staff');
+    await page.goto('/app/staff');
+    await page.getByTestId('reset-password').first().click();
+    const temp = (await page.getByTestId('temp-password').textContent())!.trim();
+    expect(temp).toMatch(/^\w{4}-\w{4}-\w{4}$/);
+
+    const barber = await browser.newPage();
+    await login(barber, PHONES.aziz, '/app', temp);
+    await barber.waitForURL('**/account?change=1');
+    await barber.getByTestId('current-password').fill(temp);
+    await barber.getByTestId('new-password').fill('barberflow-demo');
+    await barber.getByTestId('save-password').click();
+    await barber.waitForURL('**/app/**');
+    await barber.close();
   });
 
   test('working hours editor saves 24h schedule', async ({ page }) => {

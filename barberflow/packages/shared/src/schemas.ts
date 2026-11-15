@@ -39,14 +39,11 @@ const optionalText = (max: number) =>
     .transform((v) => (v ? v : null));
 const minuteOfDay = z.number().int().min(0).max(1440);
 
-// ---------- Auth ----------
-export const otpRequestSchema = z.object({ phone: uzPhone });
-export const otpVerifySchema = z.object({
-  phone: uzPhone,
-  code: z.string().trim().regex(/^\d{6}$/, 'INVALID_CODE'),
-  name: z.string().trim().max(80).optional(),
-});
-export const telegramAuthSchema = z.object({ initData: z.string().min(10).max(4096) });
+// ---------- Auth (staff only: barbers, owners, admins) ----------
+export const passwordSchema = z.string().min(8, 'PASSWORD_TOO_SHORT').max(128);
+export const registerSchema = z.object({ name: name, phone: uzPhone, password: passwordSchema });
+export const loginSchema = z.object({ phone: uzPhone, password: z.string().min(1).max(128) });
+export const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: passwordSchema });
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   locale: z.enum(['ru', 'uz']).optional(),
@@ -140,11 +137,13 @@ export const availabilityQuerySchema = z.object({
 });
 export const availableDatesQuerySchema = z.object({ serviceId: uuid });
 
+/** Guest booking: no account, no code — name and phone only. Client pays the barber on site. */
 export const createBookingSchema = z.object({
   barberId: uuid,
   serviceId: uuid,
   startsAt: z.iso.datetime({ offset: true }),
   customerName: name,
+  phone: uzPhone,
   note: optionalText(300),
   consent: z.literal(true, { message: 'CONSENT_REQUIRED' }),
 });
@@ -164,7 +163,8 @@ export const statusChangeSchema = z.object({ status: z.enum(['COMPLETED', 'NO_SH
 
 // ---------- Team ----------
 export const inviteSchema = z.object({
-  phone: uzPhone,
+  /** Optional note for the owner; acceptance is by secret link, not by phone. */
+  phone: z.union([uzPhone, z.literal('')]).optional().transform((v) => (v ? v : null)),
   role: z.enum(['MANAGER', 'BARBER']),
   barberId: uuid.optional(),
 });

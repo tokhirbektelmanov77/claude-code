@@ -1,8 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { signTelegramInitData, verifyTelegramInitData } from '../src/auth/telegram-init-data';
-import { at, futureTuesday, login, makeBusiness, nextPhone, prisma, resetDb, startApp } from './helpers';
+import { at, futureTuesday, guestBody, login, makeBusiness, nextPhone, PASSWORD, prisma, resetDb, startApp } from './helpers';
 
 let app: INestApplication;
 beforeAll(async () => { app = await startApp(); });
@@ -41,9 +40,8 @@ describe('onboarding: owner registers a business and starts taking bookings', ()
     const pub = await request(app.getHttpServer()).get('/public/businesses/aziz-barber').expect(200);
     expect(pub.body.acceptingBookings).toBe(true);
     expect(pub.body.barbers[0].serviceIds).toEqual([service.body.id]);
-    const client = await login(app);
     const day = futureTuesday();
-    await client.agent.post('/bookings').send({ barberId: barber.body.id, serviceId: service.body.id, startsAt: at(day, 16), customerName: 'Клиент', consent: true }).expect(201);
+    await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: barber.body.id, serviceId: service.body.id }, at(day, 16))).expect(201);
 
     // Owner sees it via manual-booking-capable calendar.
     const cal = await owner.agent.get(`/businesses/${id}/calendar`).query({ from: at(day, 0), to: at(day, 23, 59) }).expect(200);
@@ -95,7 +93,7 @@ describe('tenant isolation and RBAC', () => {
   it('anonymous users get 401 on private routes', async () => {
     const http = request(app.getHttpServer());
     await http.get('/auth/me').expect(401);
-    await http.get('/me/appointments').expect(401);
+    await http.get('/me/export').expect(401);
     await http.get('/platform-admin/businesses').expect(401);
   });
 
@@ -122,8 +120,7 @@ describe('tenant isolation and RBAC', () => {
     const day = futureTuesday();
     const manual = await owner.agent.post(`/businesses/${f.businessId}/appointments`).send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(day, 16), customer: { name: 'Walk-in', phone: '+998 90 555 44 33' } }).expect(201);
     expect(manual.body.source).toBe('MANUAL');
-    const client = await login(app);
-    const r = await client.agent.post('/bookings').send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(day, 16, 30), customerName: 'Клиент', consent: true }).expect(409);
+    const r = await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: f.barberId, serviceId: f.haircutId }, at(day, 16, 30))).expect(409);
     expect(r.body.code).toBe('SLOT_TAKEN');
     // Future visit can't be completed yet.
     await owner.agent.post(`/businesses/${f.businessId}/appointments/${manual.body.id}/status`).send({ status: 'COMPLETED' }).expect(409);
@@ -167,8 +164,7 @@ describe('platform admin', () => {
     expect(list.body[0]).toMatchObject({ slug: 'blockme', barbers: 2 });
     await a.agent.post(`/platform-admin/businesses/${f.businessId}/block`).send({ reason: 'Нарушение правил' }).expect(200);
     await request(app.getHttpServer()).get('/public/businesses/blockme').expect(404);
-    const client = await login(app);
-    const r = await client.agent.post('/bookings').send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(futureTuesday(), 12), customerName: 'X', consent: true });
+    const r = await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: f.barberId, serviceId: f.haircutId }, at(futureTuesday(), 12)));
     expect(r.status).toBe(403);
     await a.agent.post(`/platform-admin/businesses/${f.businessId}/unblock`).expect(200);
     await request(app.getHttpServer()).get('/public/businesses/blockme').expect(200);
@@ -204,43 +200,45 @@ describe('platform admin', () => {
     const owner = await login(app);
     const f = await makeBusiness(owner.me.id);
     await prisma.subscription.update({ where: { businessId: f.businessId }, data: { status: 'EXPIRED' } });
-    const client = await login(app);
-    const r = await client.agent.post('/bookings').send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(futureTuesday(), 12), customerName: 'X', consent: true }).expect(403);
+    const r = await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: f.barberId, serviceId: f.haircutId }, at(futureTuesday(), 12))).expect(403);
     expect(r.body.code).toBe('BOOKING_DISABLED');
     // Staff can still record walk-ins.
     await owner.agent.post(`/businesses/${f.businessId}/appointments`).send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(futureTuesday(), 12), customer: { name: 'Walk-in' } }).expect(201);
   });
 });
 
-describe('authentication', () => {
-  it('OTP: wrong code fails, attempts are limited, code is single-use', async () => {
+describe('authentication (staff: phone + password)', () => {
+  it('registers, rejects duplicates and short passwords, logs in, never stores the password', async () => {
     const http = request.agent(app.getHttpServer());
     const phone = nextPhone();
-    const r = await http.post('/auth/otp/request').send({ phone }).expect(200);
-    expect(r.body.sent).toBe(false); // honest: no SMS was delivered
-    const wrong = r.body.devCode === '000000' ? '111111' : '000000';
-    const bad = await http.post('/auth/otp/verify').send({ phone, code: wrong }).expect(400);
-    expect(bad.body.code).toBe('OTP_INVALID');
-    await http.post('/auth/otp/verify').send({ phone, code: r.body.devCode }).expect(200);
-    await http.post('/auth/otp/verify').send({ phone, code: r.body.devCode }).expect(400);
-    const stored = await prisma.otpCode.findFirstOrThrow({ where: { phone } });
-    expect(stored.codeHash).not.toContain(r.body.devCode);
+    await http.post('/auth/register').send({ name: 'Азиз', phone, password: 'short' }).expect(400);
+    await http.post('/auth/register').send({ name: 'Азиз', phone, password: PASSWORD }).expect(201);
+    const dup = await request(app.getHttpServer()).post('/auth/register').send({ name: 'X', phone, password: PASSWORD }).expect(409);
+    expect(dup.body.code).toBe('PHONE_TAKEN');
+    const user = await prisma.user.findUniqueOrThrow({ where: { phone } });
+    expect(user.passwordHash).toMatch(/^scrypt\$/);
+    expect(user.passwordHash).not.toContain(PASSWORD);
+    const again = request.agent(app.getHttpServer());
+    await again.post('/auth/login').send({ phone, password: PASSWORD }).expect(200);
+    await again.get('/auth/me').expect(200);
   });
 
-  it('OTP: brute force is cut off after 5 attempts', async () => {
-    const http = request.agent(app.getHttpServer());
-    const phone = nextPhone();
-    const r = await http.post('/auth/otp/request').send({ phone }).expect(200);
-    for (let i = 0; i < 5; i++) await http.post('/auth/otp/verify').send({ phone, code: String(100000 + i) === r.body.devCode ? '999999' : String(100000 + i) });
-    const last = await http.post('/auth/otp/verify').send({ phone, code: r.body.devCode }).expect(400);
-    expect(last.body.code).toBe('OTP_EXPIRED');
+  it('wrong password and unknown phone get the same answer; 5 failures lock the account', async () => {
+    const { phone } = await login(app);
+    const http = request(app.getHttpServer());
+    const unknown = await http.post('/auth/login').send({ phone: nextPhone(), password: 'whatever-123' }).expect(401);
+    const wrong = await http.post('/auth/login').send({ phone, password: 'wrong-password' }).expect(401);
+    expect(unknown.body.code).toBe('INVALID_CREDENTIALS');
+    expect(wrong.body).toEqual(unknown.body);
+    for (let i = 0; i < 4; i++) await http.post('/auth/login').send({ phone, password: 'wrong-password' });
+    const locked = await http.post('/auth/login').send({ phone, password: PASSWORD }).expect(429);
+    expect(locked.body.code).toBe('ACCOUNT_LOCKED');
   });
 
   it('session cookie is HttpOnly and logout revokes it', async () => {
     const phone = nextPhone();
     const http = request.agent(app.getHttpServer());
-    const r = await http.post('/auth/otp/request').send({ phone });
-    const v = await http.post('/auth/otp/verify').send({ phone, code: r.body.devCode }).expect(200);
+    const v = await http.post('/auth/register').send({ name: 'S', phone, password: PASSWORD }).expect(201);
     const cookie = String(v.headers['set-cookie']);
     expect(cookie).toMatch(/bf_session=/);
     expect(cookie).toMatch(/HttpOnly/i);
@@ -252,44 +250,103 @@ describe('authentication', () => {
     await http.get('/auth/me').expect(401);
   });
 
-  it('rejects cross-origin state-changing requests', async () => {
-    await request(app.getHttpServer()).post('/auth/otp/request').set('Origin', 'https://evil.example').send({ phone: nextPhone() }).expect(403);
+  it('changing the password signs out other devices', async () => {
+    const a = await login(app);
+    const b = request.agent(app.getHttpServer());
+    await b.post('/auth/login').send({ phone: a.phone, password: PASSWORD }).expect(200);
+    await a.agent.post('/auth/password').send({ currentPassword: 'nope-nope', newPassword: 'new-password-1' }).expect(401);
+    await a.agent.post('/auth/password').send({ currentPassword: PASSWORD, newPassword: 'new-password-1' }).expect(200);
+    await a.agent.get('/auth/me').expect(200);
+    await b.get('/auth/me').expect(401);
   });
 
-  it('Telegram: valid initData logs in, forged or stale data is rejected', async () => {
-    const token = process.env.TELEGRAM_BOT_TOKEN!;
-    const user = JSON.stringify({ id: 777000111, first_name: 'Aziz', username: 'aziz_tg', language_code: 'uz', allows_write_to_pm: true });
-    const fresh = signTelegramInitData({ auth_date: String(Math.floor(Date.now() / 1000)), query_id: 'AAE', user, start_param: 'barberflow-demo' }, token);
-    const ok = await request(app.getHttpServer()).post('/auth/telegram').send({ initData: fresh }).expect(200);
-    expect(ok.body.startParam).toBe('barberflow-demo');
-    const u = await prisma.user.findFirstOrThrow({ where: { telegramId: 777000111n } });
-    expect(u.telegramChatId).toBe(777000111n);
-    expect(u.locale).toBe('uz');
+  it('a phone number grants nothing: signing up with any phone never makes a platform admin', async () => {
+    const u = await login(app);
+    expect((await u.agent.get('/auth/me')).body.isPlatformAdmin).toBe(false);
+    await u.agent.get('/platform-admin/overview').expect(403);
+  });
 
-    const forged = fresh.replace('777000111', '777000112');
-    await request(app.getHttpServer()).post('/auth/telegram').send({ initData: forged }).expect(401);
-    const wrongBot = signTelegramInitData({ auth_date: String(Math.floor(Date.now() / 1000)), user }, '999:OTHER');
-    await request(app.getHttpServer()).post('/auth/telegram').send({ initData: wrongBot }).expect(401);
-    const stale = signTelegramInitData({ auth_date: String(Math.floor(Date.now() / 1000) - 3 * 86400), user }, token);
-    expect(verifyTelegramInitData(stale, token, 86400)).toBeNull();
-    await request(app.getHttpServer()).post('/auth/telegram').send({ initData: stale }).expect(401);
+  it('rejects cross-origin state-changing requests', async () => {
+    await request(app.getHttpServer()).post('/auth/login').set('Origin', 'https://evil.example').send({ phone: nextPhone(), password: PASSWORD }).expect(403);
+  });
+});
+
+describe('team invitations by secret link and password recovery without SMS', () => {
+  it('invite link: preview, accept once, links barber profile; phone on the invite is only a note', async () => {
+    const owner = await login(app);
+    const f = await makeBusiness(owner.me.id);
+    const inv = await owner.agent.post(`/businesses/${f.businessId}/invitations`).send({ role: 'BARBER', barberId: f.barberId, phone: '' }).expect(201);
+    const token = inv.body.invitePath.split('/').pop();
+    const stored = await prisma.invitation.findUniqueOrThrow({ where: { id: inv.body.id } });
+    expect(stored.tokenHash).not.toBe(token);
+    const preview = await request(app.getHttpServer()).get(`/invitations/${token}`).expect(200);
+    expect(preview.body).toMatchObject({ businessName: 'Test Shop', role: 'BARBER' });
+
+    await request(app.getHttpServer()).post(`/invitations/${token}/accept`).expect(401);
+    const barber = await login(app);
+    const me = await barber.agent.post(`/invitations/${token}/accept`).expect(200);
+    expect(me.body.memberships[0]).toMatchObject({ businessId: f.businessId, role: 'BARBER', barberId: f.barberId });
+    const other = await login(app);
+    await other.agent.post(`/invitations/${token}/accept`).expect(404); // single use
+    await request(app.getHttpServer()).get('/invitations/garbage-token-value-123').expect(404);
+  });
+
+  it('owner issues a temporary password to staff; change is forced; owners cannot be reset this way', async () => {
+    const owner = await login(app);
+    const f = await makeBusiness(owner.me.id);
+    const staff = await login(app);
+    const member = await prisma.businessMember.create({ data: { businessId: f.businessId, userId: staff.me.id, role: 'BARBER' } });
+    const r = await owner.agent.post(`/businesses/${f.businessId}/members/${member.id}/reset-password`).expect(200);
+    expect(r.body.temporaryPassword).toMatch(/^\w{4}-\w{4}-\w{4}$/);
+    await staff.agent.get('/auth/me').expect(401); // old sessions revoked
+    const fresh = request.agent(app.getHttpServer());
+    const me = await fresh.post('/auth/login').send({ phone: staff.phone, password: r.body.temporaryPassword }).expect(200);
+    expect(me.body.mustChangePassword).toBe(true);
+    await fresh.post('/auth/password').send({ currentPassword: r.body.temporaryPassword, newPassword: 'my-own-password' }).expect(200);
+    expect((await fresh.get('/auth/me')).body.mustChangePassword).toBe(false);
+
+    const ownerMember = await prisma.businessMember.findFirstOrThrow({ where: { businessId: f.businessId, role: 'OWNER' } });
+    await owner.agent.post(`/businesses/${f.businessId}/members/${ownerMember.id}/reset-password`).expect(403);
+    await staff.agent.post(`/businesses/${f.businessId}/members/${member.id}/reset-password`).expect(401);
+  });
+
+  it('platform admin can reset an owner password', async () => {
+    const admin = await login(app);
+    await prisma.user.update({ where: { id: admin.me.id }, data: { platformRole: 'PLATFORM_ADMIN' } });
+    const owner = await login(app);
+    const r = await admin.agent.post(`/platform-admin/users/${owner.me.id}/reset-password`).expect(200);
+    await request(app.getHttpServer()).post('/auth/login').send({ phone: owner.phone, password: r.body.temporaryPassword }).expect(200);
+    await owner.agent.get('/auth/me').expect(401); // the reset revoked the owner's sessions
+    const someone = await login(app);
+    await someone.agent.post(`/platform-admin/users/${admin.me.id}/reset-password`).expect(403);
   });
 });
 
 describe('privacy', () => {
-  it('client can export and delete their data; history stays anonymised', async () => {
+  it('staff account can export and delete itself; owners must hand over first', async () => {
+    const owner = await login(app);
+    await makeBusiness(owner.me.id);
+    await owner.agent.delete('/me').expect(409);
+    const staff = await login(app, nextPhone(), 'Удаляемый');
+    const exp = await staff.agent.get('/me/export').expect(200);
+    expect(exp.body.user.name).toBe('Удаляемый');
+    await staff.agent.delete('/me').expect(200);
+    await staff.agent.get('/auth/me').expect(401);
+    const u = await prisma.user.findUniqueOrThrow({ where: { id: staff.me.id } });
+    expect(u.phone).toBeNull();
+    expect(u.passwordHash).toBeNull();
+  });
+
+  it('owner anonymises a guest client on request; visit history stays without PII', async () => {
     const owner = await login(app);
     const f = await makeBusiness(owner.me.id);
-    const client = await login(app, nextPhone(), 'Удаляемый');
-    const day = futureTuesday();
-    const booked = await client.agent.post('/bookings').send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(day, 12), customerName: 'Удаляемый', consent: true }).expect(201);
-    const exp = await client.agent.get('/me/export').expect(200);
-    expect(exp.body.businesses[0].appointments).toHaveLength(1);
-    await client.agent.delete('/me').expect(200);
-    await client.agent.get('/auth/me').expect(401);
-    const appt = await prisma.appointment.findUniqueOrThrow({ where: { id: booked.body.id }, include: { customer: true } });
-    expect(appt.status).toBe('CANCELLED');
-    expect(appt.customer.phone).toBeNull();
-    expect(appt.customer.name).toBe('—');
+    const booked = await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: f.barberId, serviceId: f.haircutId }, at(futureTuesday(), 12), nextPhone(), 'Удаляемый')).expect(201);
+    const exp = await owner.agent.get(`/businesses/${f.businessId}/customers/${booked.body.customerId}/export`).expect(200);
+    expect(exp.body.customer.name).toBe('Удаляемый');
+    await owner.agent.delete(`/businesses/${f.businessId}/customers/${booked.body.customerId}`).expect(200);
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: booked.body.customerId } });
+    expect(c.phone).toBeNull();
+    expect(c.name).toBe('—');
+    expect(await prisma.appointment.count({ where: { customerId: c.id } })).toBe(1);
   });
 });

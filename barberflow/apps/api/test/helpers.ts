@@ -31,12 +31,18 @@ export function nextPhone() {
   return `+99893${String(1000000 + phoneSeq + Math.floor(Math.random() * 1000) * 1000).slice(-7)}`;
 }
 
-/** Logs in through the real OTP endpoints (dev mode returns the code) and returns an agent with the cookie. */
-export async function login(app: INestApplication, phone = nextPhone(), name?: string) {
+export const PASSWORD = 'correct-horse-battery';
+
+/** Registers a staff account through the real endpoint and returns an agent holding the session cookie. */
+export async function login(app: INestApplication, phone = nextPhone(), name = 'Staff') {
   const agent = request.agent(app.getHttpServer());
-  const r = await agent.post('/auth/otp/request').send({ phone }).expect(200);
-  const me = await agent.post('/auth/otp/verify').send({ phone, code: r.body.devCode, name }).expect(200);
+  const me = await agent.post('/auth/register').send({ name, phone, password: PASSWORD }).expect(201);
   return { agent, me: me.body as { id: string }, phone };
+}
+
+/** Guest (client) booking body: name + phone, no account. */
+export function guestBody(f: { barberId: string; serviceId: string }, startsAt: string, phone = nextPhone(), name = 'Клиент') {
+  return { barberId: f.barberId, serviceId: f.serviceId, startsAt, customerName: name, phone, consent: true };
 }
 
 export interface Fixture {

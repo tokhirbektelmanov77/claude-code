@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { APP_CONFIG, AppConfig } from './config';
 
-// Telegram ids are BIGINT; serialise as strings instead of crashing JSON.stringify.
+// Safety net: BIGINT values (if any appear in responses) serialise as strings instead of crashing JSON.stringify.
 (BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function (this: bigint) {
   return this.toString();
 };

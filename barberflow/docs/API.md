@@ -5,47 +5,48 @@ REST, JSON. Полная машинная спецификация: `GET /docs/o
 
 ## Общие правила
 
-- **Аутентификация**: HttpOnly cookie `bf_session` (SameSite=Lax). Получается через `/auth/otp/verify` или `/auth/telegram`.
+- **Клиенты без аккаунтов**: запись по имени и телефону (`POST /public/bookings`), управление записью — по секретному токену из ответа (`/public/appointments/:token…`). Токен — 32 случайных байта (base64url, 43 символа), в БД хранится только sha256.
+- **Сотрудники**: телефон + пароль → HttpOnly cookie `bf_session` (SameSite=Lax).
 - **Ошибки**: `{ "statusCode": 409, "code": "SLOT_TAKEN", "message": "…", "details"?: … }`. Коды стабильны, UI переводит их через словарь `errors.*`.
-  Основные: `VALIDATION_ERROR` (400, `details` — поля), `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404),
+  Основные: `VALIDATION_ERROR` (400, `details` — поля), `UNAUTHORIZED` (401), `INVALID_CREDENTIALS` (401), `FORBIDDEN` (403), `NOT_FOUND` (404),
   `SLOT_TAKEN` (409), `SLOT_UNAVAILABLE` (422, `details.reason`: `IN_PAST|TOO_SOON|BEYOND_HORIZON|OUTSIDE_WORKING_HOURS`),
-  `CANCEL_TOO_LATE`, `INVALID_STATE`, `PLAN_LIMIT`, `SLUG_TAKEN` (409), `BOOKING_DISABLED`/`BUSINESS_BLOCKED` (403), `RATE_LIMITED` (429), `SMS_UNAVAILABLE` (503).
-- **Идемпотентность**: `POST /bookings` и `POST /businesses/:id/appointments` принимают `Idempotency-Key`.
+  `CANCEL_TOO_LATE`, `INVALID_STATE`, `PLAN_LIMIT`, `SLUG_TAKEN`, `PHONE_TAKEN` (409), `BOOKING_DISABLED`/`BUSINESS_BLOCKED` (403),
+  `TOO_MANY_BOOKINGS`, `ACCOUNT_LOCKED`, `RATE_LIMITED` (429).
+- **Идемпотентность**: `POST /public/bookings` и `POST /businesses/:id/appointments` принимают `Idempotency-Key`. Повтор гостевого запроса возвращает ту же запись и новый токен управления (старый перестаёт работать).
 - **Время**: ISO-8601 с часовым поясом (`2026-11-17T11:00:00.000Z` = 16:00 Ташкент). Даты для слотов — `YYYY-MM-DD` в поясе бизнеса.
-- **Деньги**: целые сумы (`priceUzs: 100000`).
-- **Лимиты**: глобально 300 запросов/мин с IP; OTP — 5 запросов/10 мин с IP и 3 кода/10 мин на номер, 5 попыток ввода на код.
+- **Деньги**: целые сумы (`priceUzs: 100000`). Клиент платит барберу на месте; платёжных эндпоинтов для клиентов нет.
+- **Лимиты**: глобально 300 запросов/мин с IP; гостевая запись — 10 / 10 мин с IP и не больше 3 будущих записей на номер в бизнесе; вход — 10 / 10 мин с IP и блокировка аккаунта на 15 мин после 5 неудачных попыток; регистрация — 5 / час с IP.
 - **CSRF**: небезопасные методы с чужим `Origin` отклоняются (403).
 
-## Эндпоинты (77)
+## Эндпоинты (76)
 
-### Авторизация
+### Авторизация сотрудников
 | Метод | Путь | Описание |
 | --- | --- | --- |
-| POST | `/auth/otp/request` | `{phone}` → `{sent, expiresInSec, devCode?}`. `devCode` только при `OTP_DEV_MODE` вне production |
-| POST | `/auth/otp/verify` | `{phone, code, name?}` → профиль + cookie |
-| POST | `/auth/telegram` | `{initData}` (Mini App) → `{me, startParam}` + cookie; подпись проверяется на сервере |
+| POST | `/auth/register` | `{name, phone, password(≥8)}` → профиль + cookie. Роль PLATFORM_ADMIN так не получить |
+| POST | `/auth/login` | `{phone, password}` → профиль + cookie |
+| POST | `/auth/password` | `{currentPassword, newPassword}`; завершает сессии на других устройствах |
 | POST | `/auth/logout` | Отзыв сессии |
-| GET | `/auth/me` | Профиль, членства в бизнесах, приглашения |
-| GET | `/auth/methods` | Какие способы входа включены (`otpDevMode`, `telegram`) |
+| GET | `/auth/me` | Профиль, членства, `mustChangePassword` |
 
-### Публичные
+### Публичные и клиентские (без входа)
 | GET | `/public/businesses/:slug` | Страница барбершопа: мастера, услуги, цены (с override мастера), `acceptingBookings` |
 | GET | `/public/barbers/:slug` | Персональная ссылка → `{barberId, businessSlug}` |
 | GET | `/public/barbers/:barberId/dates?serviceId=` | Даты горизонта, где есть хотя бы один слот |
 | GET | `/public/barbers/:barberId/slots?serviceId=&date=` | Свободные слоты `{start, end}` |
 | GET | `/public/plans` | Активные тарифы |
+| POST | `/public/bookings` | `{barberId, serviceId, startsAt, customerName, phone, note?, consent: true}` → запись + `manageToken` (201) |
+| GET | `/public/appointments/:token` | Запись по секретной ссылке |
+| GET | `/public/appointments/:token/dates`, `…/slots?date=` | Доступность для переноса (текущая запись исключена) |
+| POST | `/public/appointments/:token/reschedule` | `{startsAt}`; не позднее `cancellationMinHours` до визита |
+| POST | `/public/appointments/:token/cancel` | `{reason?}` |
+| GET | `/invitations/:token` | Предпросмотр приглашения (бизнес, роль) |
 
-### Клиент (нужна сессия)
-| POST | `/bookings` | `{barberId, serviceId, startsAt, customerName, note?, consent: true}` → запись (201) |
-| GET | `/me/appointments`, `/me/appointments/:id` | Мои записи |
-| GET | `/me/appointments/:id/dates`, `…/slots?date=` | Доступность для переноса (текущая запись исключена) |
-| POST | `/me/appointments/:id/reschedule` | `{startsAt}`; не позднее `cancellationMinHours` до визита |
-| POST | `/me/appointments/:id/cancel` | `{reason?}` |
+### Аккаунт сотрудника (сессия)
 | PATCH | `/me` | Имя, язык |
-| POST | `/me/invitations/:id/accept` | Принять приглашение в команду |
-| POST | `/me/telegram/link` | Deep link для привязки Telegram-чата |
-| GET | `/me/export` | Экспорт моих данных (JSON) |
-| DELETE | `/me` | Удаление аккаунта: будущие записи отменяются, ПДн обезличиваются |
+| GET | `/me/export` | Экспорт данных аккаунта (JSON) |
+| DELETE | `/me` | Удаление аккаунта (владелец должен сначала передать бизнес) |
+| POST | `/invitations/:token/accept` | Принять приглашение (одноразово) |
 
 ### Бизнес (сессия + членство; роль указана)
 | POST | `/businesses` | Любой пользователь: создать бизнес, стать OWNER, пробный период SOLO |
@@ -58,7 +59,8 @@ REST, JSON. Полная машинная спецификация: `GET /docs/o
 | GET / POST / PATCH / DELETE | `/businesses/:businessId/services[/:serviceId]` | Изменение — OWNER/MANAGER; DELETE = скрыть |
 | GET / POST / PATCH | `/businesses/:businessId/branches[/:branchId]` | Филиалы |
 | GET | `/businesses/:businessId/members` | Команда и приглашения |
-| POST / DELETE | `/businesses/:businessId/invitations[/:id]` | Пригласить по телефону / отозвать |
+| POST / DELETE | `/businesses/:businessId/invitations[/:id]` | Создать ссылку-приглашение (`invitePath` возвращается один раз) / отозвать |
+| POST | `/businesses/:businessId/members/:memberId/reset-password` | OWNER: временный пароль сотруднику (не владельцу), смена обязательна |
 | PATCH | `/businesses/:businessId/members/:memberId` | Роль/статус (OWNER; последнего владельца понизить нельзя) |
 | GET / POST | `/businesses/:businessId/customers` | Поиск `?q=`; BARBER видит только своих клиентов |
 | GET / PATCH | `/businesses/:businessId/customers/:customerId` | Карточка, история визитов, заметки |
@@ -81,7 +83,8 @@ REST, JSON. Полная машинная спецификация: `GET /docs/o
 | GET | `/platform-admin/payments` | Платежи |
 | POST | `/platform-admin/businesses/:id/payments` | Зафиксировать платёж (PENDING) |
 | POST | `/platform-admin/payments/:id/confirm`, `/reject` | Подтверждение продлевает период; повторно подтвердить нельзя |
-| GET | `/platform-admin/errors`, `/audit`, `/notifications` | Технические ошибки, журнал действий, состояние очереди |
+| POST | `/platform-admin/users/:id/reset-password` | Временный пароль владельцу бизнеса |
+| GET | `/platform-admin/errors`, `/audit` | Технические ошибки, журнал действий |
 
 ### Служебное
 | GET | `/health` | Проверка API и БД |

@@ -6,7 +6,7 @@ import { Check, Plus, Trash2 } from 'lucide-react';
 import { Alert, Button, Card, Checkbox, Field, Input, Skeleton, Spinner, cn } from '@barberflow/ui';
 import type { MeDto } from '@barberflow/shared';
 import { SiteHeader } from '@/components/site-header';
-import { OtpLogin } from '@/components/otp-login';
+import { StaffAuth } from '@/components/staff-auth';
 import { CopyField } from '@/components/copy-field';
 import { QrCard } from '@/components/qr';
 import { WeekEdit, WeeklyHoursEditor, defaultWeek, intervalsFromWeek } from '@/components/cabinet/weekly-hours-editor';
@@ -70,8 +70,8 @@ export default function OnboardingPage() {
           <>
             <Progress step={step} />
             {step === 1 && (
-              <StepCard title={t('auth.title')} text={t('onboarding.s1Text')}>
-                <OtpLogin onSuccess={() => undefined} submitLabel={t('common.continue')} />
+              <StepCard title={t('onboarding.s1')} text={t('onboarding.s1Text')}>
+                <StaffAuth initialMode="register" onSuccess={() => undefined} />
               </StepCard>
             )}
             {step === 2 && <NameStep onCreated={(id) => { setBusinessId(id); qc.invalidateQueries({ queryKey: ['me'] }); }} />}

@@ -9,6 +9,7 @@ import { notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { SubscriptionBillingService } from '../subscriptions/billing.service';
+import { hashPassword, temporaryPassword } from '@barberflow/db';
 
 class BlockDto extends createZodDto(blockBusinessSchema) {}
 class PlanUpdateDto extends createZodDto(planUpdateSchema) {}
@@ -30,17 +31,16 @@ export class PlatformAdminController {
 
   @Get('overview')
   async overview() {
-    const [businesses, blocked, byStatus, appointments, users, errors24h, failedJobs] = await Promise.all([
+    const [businesses, blocked, byStatus, appointments, users, errors24h] = await Promise.all([
       this.prisma.business.count(),
       this.prisma.business.count({ where: { status: 'BLOCKED' } }),
       this.prisma.subscription.groupBy({ by: ['status'], _count: true }),
       this.prisma.appointment.count(),
       this.prisma.user.count({ where: { deletedAt: null } }),
       this.prisma.errorLog.count({ where: { createdAt: { gt: new Date(Date.now() - 86400_000) } } }),
-      this.prisma.notificationJob.count({ where: { status: 'FAILED' } }),
     ]);
     const subs = Object.fromEntries(byStatus.map((s) => [s.status, s._count]));
-    return { businesses, blocked, subscriptions: subs, appointments, users, errors24h, failedJobs };
+    return { businesses, blocked, subscriptions: subs, appointments, users, errors24h };
   }
 
   @Get('businesses')
@@ -51,7 +51,7 @@ export class PlatformAdminController {
       take: 200,
       include: {
         subscription: { include: { plan: { select: { code: true, name: true } } } },
-        members: { where: { role: 'OWNER' }, include: { user: { select: { phone: true, name: true } } }, take: 1 },
+        members: { where: { role: 'OWNER' }, include: { user: { select: { id: true, phone: true, name: true } } }, take: 1 },
         _count: { select: { barbers: true, appointments: true } },
       },
     });
@@ -149,17 +149,19 @@ export class PlatformAdminController {
     });
   }
 
-  @Get('notifications')
-  async notifications() {
-    const [byStatus, recent] = await Promise.all([
-      this.prisma.notificationJob.groupBy({ by: ['status'], _count: true }),
-      this.prisma.notificationJob.findMany({
-        where: { status: { in: ['FAILED', 'SKIPPED'] } },
-        orderBy: { updatedAt: 'desc' },
-        take: 50,
-        select: { id: true, type: true, status: true, attempts: true, lastError: true, updatedAt: true },
-      }),
+  /** Password recovery for owners (no SMS): one-time temporary password, change forced at sign-in. */
+  @Post('users/:id/reset-password')
+  @HttpCode(200)
+  async resetPassword(@Param('id', ParseUUIDPipe) id: string, @CurrentAuth() auth: AuthContext, @ReqIp() ip: string | null) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user || user.deletedAt) throw notFound('User');
+    if (user.platformRole === 'PLATFORM_ADMIN') throw notFound('User');
+    const temp = temporaryPassword();
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(temp), mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } }),
+      this.prisma.session.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
-    return { byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count])), recent };
+    await this.audit.log({ actorUserId: auth.user.id, action: 'admin.user.password_reset', entityType: 'user', entityId: id, ip });
+    return { temporaryPassword: temp };
   }
 }

@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { APP_CONFIG, AppConfig, loadConfig } from './config';
+import { APP_CONFIG, loadConfig } from './config';
 import { PrismaService } from './common/prisma.service';
 import { AuditService } from './common/audit.service';
 import { AllExceptionsFilter } from './common/exception.filter';
@@ -11,11 +11,9 @@ import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { SessionService } from './auth/session.service';
 import { SessionMiddleware } from './auth/session.middleware';
-import { ConsoleSmsProvider, DisabledSmsProvider, SMS_PROVIDER } from './auth/sms.provider';
 import { AvailabilityService } from './booking/availability.service';
 import { BookingService } from './booking/booking.service';
 import { StaffAppointmentsController } from './booking/staff-appointments.controller';
-import { NotificationsService } from './notifications/notifications.service';
 import { PublicController } from './public/public.controller';
 import { PublicService } from './public/public.service';
 import { MeController } from './me/me.controller';
@@ -52,11 +50,6 @@ const config = loadConfig();
   ],
   providers: [
     { provide: APP_CONFIG, useValue: config },
-    {
-      provide: SMS_PROVIDER,
-      useFactory: (cfg: AppConfig) => (cfg.SMS_PROVIDER === 'console' ? new ConsoleSmsProvider() : new DisabledSmsProvider()),
-      inject: [APP_CONFIG],
-    },
     { provide: APP_PIPE, useClass: ZodValidationPipe },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -69,7 +62,6 @@ const config = loadConfig();
     PlatformAdminGuard,
     AvailabilityService,
     BookingService,
-    NotificationsService,
     PublicService,
     BusinessService,
     SubscriptionBillingService,

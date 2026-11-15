@@ -2,17 +2,17 @@
 import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Clock, Info, Scissors } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, Clock, Info, Scissors, Wallet } from 'lucide-react';
 import { Alert, Avatar, Button, Card, Checkbox, Field, Input, Skeleton, Textarea, cn } from '@barberflow/ui';
-import type { AppointmentDto, PublicBarber, PublicBusiness, SlotDto } from '@barberflow/shared';
+import { normalizeUzPhone, type GuestBookingResult, type PublicBarber, type PublicBusiness, type SlotDto } from '@barberflow/shared';
 import { SiteHeader } from '@/components/site-header';
 import { ErrorState } from '@/components/states';
-import { OtpLogin } from '@/components/otp-login';
+import { PhoneInput } from '@/components/phone-input';
 import { DateCalendar } from '@/components/booking/date-calendar';
 import { SlotGrid } from '@/components/booking/slot-grid';
 import { api, ApiError, newIdempotencyKey } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
-import { useMe } from '@/lib/auth';
+import { rememberToken, saveContact, savedContact } from '@/lib/device-bookings';
 import { localDateOf, useFormat } from '@/lib/format';
 import { errorKey } from '@/lib/errors';
 import { serviceName, usePublicBusiness } from '@/lib/public';
@@ -177,13 +177,17 @@ function TimeStep({
     queryKey: ['dates', barberId, serviceId],
     queryFn: () => api<{ dates: string[] }>(`/public/barbers/${barberId}/dates?serviceId=${serviceId}`),
   });
+  // The chosen day lives in local state so the slot grid switches instantly; the URL (for the Back
+  // button and shareable state) follows asynchronously. A picked time always belongs to `selected`.
+  const [day, setDay] = React.useState<string | null>(date);
   const firstDate = dates.data?.dates[0] ?? null;
-  const selected = date && dates.data?.dates.includes(date) ? date : firstDate;
+  const selected = day && dates.data?.dates.includes(day) ? day : firstDate;
   React.useEffect(() => {
     if (selected && selected !== date) onDate(selected);
   }, [selected, date, onDate]);
-  const [picked, setPicked] = React.useState<string | null>(null);
-  React.useEffect(() => setPicked(null), [selected]);
+  const [picked, setPicked] = React.useState<{ day: string; start: string } | null>(null);
+  const pickedStart = picked && picked.day === selected ? picked.start : null;
+  const chooseDay = (d: string) => { setDay(d); setPicked(null); };
   const slots = useQuery({
     queryKey: ['slots', barberId, serviceId, selected],
     queryFn: () => api<{ slots: SlotDto[] }>(`/public/barbers/${barberId}/slots?serviceId=${serviceId}&date=${selected}`),
@@ -198,7 +202,7 @@ function TimeStep({
   }
   return (
     <div className="flex flex-col gap-5">
-      <DateCalendar available={dates.data.dates} value={selected} onChange={onDate} timezone={b.timezone} horizonDays={b.bookingHorizonDays} />
+      <DateCalendar available={dates.data.dates} value={selected} onChange={chooseDay} timezone={b.timezone} horizonDays={b.bookingHorizonDays} />
       <section>
         <h2 className="mb-3 text-[16px] font-bold tracking-tight">
           {t('booking.availableTime')}{selected && <span className="font-medium text-fg-muted"> · {f.dateWeekday(selected)}</span>}
@@ -206,12 +210,12 @@ function TimeStep({
         {slots.isError ? (
           <ErrorState error={slots.error} onRetry={() => slots.refetch()} />
         ) : (
-          <SlotGrid slots={slots.data?.slots} loading={slots.isLoading} value={picked} onChange={setPicked} timezone={b.timezone} />
+          <SlotGrid slots={slots.data?.slots} loading={slots.isLoading || slots.isFetching && !slots.data} value={pickedStart} onChange={(start) => selected && setPicked({ day: selected, start })} timezone={b.timezone} />
         )}
       </section>
       <div className="sticky bottom-0 z-10 -mx-4 mt-2 border-t border-border bg-bg/92 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
-        <Button size="lg" block disabled={!picked} onClick={() => picked && onTime(picked)} data-testid="time-continue">
-          {picked ? `${t('common.continue')} · ${f.time(picked)}` : t('common.continue')}<ArrowRight />
+        <Button size="lg" block disabled={!pickedStart} onClick={() => pickedStart && onTime(pickedStart)} data-testid="time-continue">
+          {pickedStart ? `${t('common.continue')} · ${f.time(pickedStart)}` : t('common.continue')}<ArrowRight />
         </Button>
       </div>
     </div>
@@ -225,11 +229,11 @@ function ConfirmStep({
   const f = useFormat(b.timezone);
   const router = useRouter();
   const qc = useQueryClient();
-  const me = useMe();
   const service = b.services.find((s) => s.id === serviceId)!;
   const p = barber.prices[serviceId] ?? { priceUzs: service.priceUzs, durationMin: service.durationMin };
   const end = new Date(new Date(start).getTime() + p.durationMin * 60_000).toISOString();
   const [name, setName] = React.useState('');
+  const [phone, setPhone] = React.useState('+998 ');
   const [note, setNote] = React.useState('');
   const [consent, setConsent] = React.useState(false);
   const [error, setError] = React.useState<{ code: string; text: string } | null>(null);
@@ -237,20 +241,25 @@ function ConfirmStep({
   // One key per confirmation screen: double taps and network retries can't create two bookings.
   const idemKey = React.useMemo(() => newIdempotencyKey(), []);
 
+  // Prefill from the last booking on this device (convenience only).
   React.useEffect(() => {
-    if (me.data?.name && !name) setName(me.data.name);
-  }, [me.data, name]);
+    const c = savedContact();
+    if (c.name) setName(c.name);
+    if (c.phone) setPhone(c.phone);
+  }, []);
+  const normalizedPhone = normalizeUzPhone(phone);
 
   async function confirm() {
     setBusy(true);
     setError(null);
     try {
-      const appt = await api<AppointmentDto>('/bookings', {
-        body: { barberId: barber.id, serviceId, startsAt: start, customerName: name.trim(), note: note.trim() || null, consent: true },
+      const appt = await api<GuestBookingResult>('/public/bookings', {
+        body: { barberId: barber.id, serviceId, startsAt: start, customerName: name.trim(), phone: normalizedPhone, note: note.trim() || null, consent: true },
         idempotencyKey: idemKey,
       });
-      qc.invalidateQueries({ queryKey: ['my-appointments'] });
-      router.push(`/me/appointments/${appt.id}?new=1`);
+      saveContact(name.trim(), phone);
+      rememberToken(appt.manageToken);
+      router.push(`/a/${appt.manageToken}?new=1`);
     } catch (e) {
       setBusy(false);
       if (e instanceof ApiError && (e.code === 'SLOT_TAKEN' || e.code === 'SLOT_UNAVAILABLE')) {
@@ -312,34 +321,23 @@ function ConfirmStep({
         </Alert>
       )}
 
-      {me.isLoading ? (
-        <Skeleton className="h-40" />
-      ) : !me.data ? (
-        <Card className="p-4 sm:p-5">
-          <p className="mb-4 text-[15px] font-medium">{t('booking.loginToBook')}</p>
-          <OtpLogin onSuccess={() => undefined} submitLabel={t('common.continue')} />
-        </Card>
-      ) : (
-        <Card className="flex flex-col gap-4 p-4 sm:p-5">
-          <Field label={t('booking.yourName')} htmlFor="cname">
-            <Input id="cname" value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" maxLength={80} data-testid="customer-name" />
-          </Field>
-          {me.data.phone && (
-            <Field label={t('booking.yourPhone')}>
-              <div className="flex h-11 items-center gap-2 rounded-xl bg-surface-2 px-3.5 text-[15px] tabular-nums text-fg-muted">
-                <Check className="size-4 text-success" />{f.phone(me.data.phone)}
-              </div>
-            </Field>
-          )}
-          <Field label={t('common.note')} optionalText={t('common.optional')} htmlFor="cnote">
-            <Textarea id="cnote" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('booking.notePlaceholder')} maxLength={300} rows={2} />
-          </Field>
-          <Checkbox checked={consent} onChange={(e) => setConsent(e.target.checked)} label={t('booking.consent')} data-testid="consent" />
-          <Button size="lg" block onClick={confirm} loading={busy} disabled={!consent || !name.trim()} data-testid="confirm-booking">
-            {busy ? t('booking.confirming') : t('booking.confirmBooking')}
-          </Button>
-        </Card>
-      )}
+      <Card className="flex flex-col gap-4 p-4 sm:p-5">
+        <Field label={t('booking.yourName')} htmlFor="cname">
+          <Input id="cname" value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" maxLength={80} data-testid="customer-name" />
+        </Field>
+        <Field label={t('booking.yourPhone')} htmlFor="cphone" hint={t('booking.phoneHint')}
+          error={phone.replace(/\D/g, '').length >= 12 && !normalizedPhone ? t('errors.INVALID_PHONE') : undefined}>
+          <PhoneInput id="cphone" value={phone} onChange={setPhone} data-testid="customer-phone" />
+        </Field>
+        <Field label={t('common.note')} optionalText={t('common.optional')} htmlFor="cnote">
+          <Textarea id="cnote" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('booking.notePlaceholder')} maxLength={300} rows={2} />
+        </Field>
+        <p className="flex items-center gap-2 text-[13.5px] text-fg-muted"><Wallet className="size-4 shrink-0 text-accent" />{t('booking.payOnSite')}</p>
+        <Checkbox checked={consent} onChange={(e) => setConsent(e.target.checked)} label={t('booking.consent')} data-testid="consent" />
+        <Button size="lg" block onClick={confirm} loading={busy} disabled={!consent || !name.trim() || !normalizedPhone} data-testid="confirm-booking">
+          {busy ? t('booking.confirming') : t('booking.confirmBooking')}
+        </Button>
+      </Card>
     </div>
   );
 }

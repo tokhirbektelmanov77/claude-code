@@ -1,25 +1,29 @@
-import { expect, Page } from '@playwright/test';
+import { Page } from '@playwright/test';
 
-export const PHONES = { admin: '+998900000001', owner: '+998900000002', aziz: '+998900000003', client: '+998900000004', solo: '+998900000005' };
+export const PHONES = { admin: '+998900000001', owner: '+998900000002', aziz: '+998900000003', solo: '+998900000005' };
+/** Seeded staff password (development only). */
+export const DEMO_PASSWORD = 'barberflow-demo';
 
-/** Unique, valid, fake phone per test run (OTP codes are rate limited per phone). */
+let seq = 0;
+/** Unique, valid, fake phone per call. */
 export function freshPhone(): string {
-  return '+99899' + String(Date.now()).slice(-7);
+  seq++;
+  return '+99899' + String((Date.now() + seq * 7919) % 10_000_000).padStart(7, '0');
 }
 
-/** Logs in through the real OTP flow; dev mode shows the code in a labelled test banner. */
-export async function loginOtp(page: Page, phone: string) {
-  await page.getByTestId('phone-input').fill(phone);
-  await page.getByTestId('send-code').click();
-  const banner = page.getByTestId('dev-code-text');
-  await expect(banner).toBeVisible();
-  const code = (await banner.textContent())!.match(/(\d{6})/)![1];
-  await page.getByTestId('code-input').fill(code);
-  await page.getByTestId('verify-code').click();
+/** Fills the guest booking form (name + phone, no account). */
+export async function fillGuest(page: Page, name: string, phone = freshPhone()) {
+  await page.getByTestId('customer-name').fill(name);
+  await page.getByTestId('customer-phone').fill(phone);
+  await page.getByTestId('consent').check();
+  return phone;
 }
 
-export async function login(page: Page, phone: string, next = '/me') {
+/** Staff sign-in with phone + password through the real form. */
+export async function login(page: Page, phone: string, next = '/app', password = DEMO_PASSWORD) {
   await page.goto(`/login?next=${encodeURIComponent(next)}`);
-  await loginOtp(page, phone);
+  await page.getByTestId('auth-phone').fill(phone);
+  await page.getByTestId('auth-password').fill(password);
+  await page.getByTestId('auth-submit').click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'));
 }

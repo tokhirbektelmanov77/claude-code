@@ -46,7 +46,6 @@ enum AppointmentStatus {
 
 enum AppointmentSource {
   ONLINE
-  TELEGRAM
   MANUAL
 }
 
@@ -83,41 +82,31 @@ enum PaymentMethod {
   CLICK
 }
 
-enum NotificationChannel {
-  TELEGRAM
-  SMS
-}
-
-enum NotificationStatus {
-  PENDING
-  PROCESSING
-  SENT
-  FAILED
-  SKIPPED
-}
-
 model User {
-  id                String       @id @default(uuid()) @db.Uuid
-  phone             String?      @unique
-  name              String?
-  locale            String       @default("ru")
-  platformRole      PlatformRole @default(USER) @map("platform_role")
-  telegramId        BigInt?      @unique @map("telegram_id")
-  telegramUsername  String?      @map("telegram_username")
-  // Chat the bot may write to. Only set after the user started the bot or allowed messages.
-  telegramChatId    BigInt?      @map("telegram_chat_id")
-  marketingConsent  Boolean      @default(false) @map("marketing_consent")
-  privacyAcceptedAt DateTime?    @map("privacy_accepted_at") @db.Timestamptz(3)
-  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(3)
+  id                 String       @id @default(uuid()) @db.Uuid
+  // Staff accounts only (barbers, owners, platform admins). Clients book as guests, without accounts.
+  // The phone is NOT verified (no SMS/Telegram in this product version).
+  phone              String?      @unique
+  name               String?
+  locale             String       @default("ru")
+  platformRole       PlatformRole @default(USER) @map("platform_role")
+  // scrypt$N$r$p$salt$hash — never the password itself.
+  passwordHash       String?      @map("password_hash")
+  // Set after an owner/admin issued a temporary password; the UI forces a change.
+  mustChangePassword Boolean      @default(false) @map("must_change_password")
+  failedLoginCount   Int          @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?    @map("locked_until") @db.Timestamptz(3)
+  marketingConsent   Boolean      @default(false) @map("marketing_consent")
+  privacyAcceptedAt  DateTime?    @map("privacy_accepted_at") @db.Timestamptz(3)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt          DateTime?    @map("deleted_at") @db.Timestamptz(3)
 
-  sessions          Session[]
-  memberships       BusinessMember[]
-  barberProfiles    Barber[]
-  customerProfiles  Customer[]
-  auditLogs         AuditLog[]
-  telegramLinks     TelegramLinkToken[]
+  sessions         Session[]
+  memberships      BusinessMember[]
+  barberProfiles   Barber[]
+  customerProfiles Customer[]
+  auditLogs        AuditLog[]
 
   @@map("users")
 }
@@ -140,60 +129,32 @@ model Session {
   @@map("sessions")
 }
 
-model OtpCode {
-  id         String    @id @default(uuid()) @db.Uuid
-  phone      String
-  // HMAC-SHA256(code, OTP_SECRET); codes are never stored in clear text.
-  codeHash   String    @map("code_hash")
-  attempts   Int       @default(0)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
-  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
-  ip         String?
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  @@index([phone, createdAt])
-  @@map("otp_codes")
-}
-
-model TelegramLinkToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
-  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("telegram_link_tokens")
-}
-
 model Business {
-  id                    String         @id @default(uuid()) @db.Uuid
-  slug                  String         @unique
-  name                  String
-  city                  String?
-  address               String?
-  phone                 String?
-  description           String?
-  coverUrl              String?        @map("cover_url")
-  latitude              Float?
-  longitude             Float?
-  timezone              String         @default("Asia/Tashkent")
-  currency              String         @default("UZS")
-  status                BusinessStatus @default(ACTIVE)
-  blockedReason         String?        @map("blocked_reason")
+  id                   String         @id @default(uuid()) @db.Uuid
+  slug                 String         @unique
+  name                 String
+  city                 String?
+  address              String?
+  phone                String?
+  description          String?
+  coverUrl             String?        @map("cover_url")
+  latitude             Float?
+  longitude            Float?
+  timezone             String         @default("Asia/Tashkent")
+  currency             String         @default("UZS")
+  status               BusinessStatus @default(ACTIVE)
+  blockedReason        String?        @map("blocked_reason")
   // Booking rules
-  bookingHorizonDays    Int            @default(30) @map("booking_horizon_days")
-  minLeadMinutes        Int            @default(60) @map("min_lead_minutes")
-  slotStepMinutes       Int            @default(15) @map("slot_step_minutes")
-  cancellationMinHours  Int            @default(2) @map("cancellation_min_hours")
-  cancellationPolicy    String?        @map("cancellation_policy")
+  bookingHorizonDays   Int            @default(30) @map("booking_horizon_days")
+  minLeadMinutes       Int            @default(60) @map("min_lead_minutes")
+  slotStepMinutes      Int            @default(15) @map("slot_step_minutes")
+  cancellationMinHours Int            @default(2) @map("cancellation_min_hours")
+  cancellationPolicy   String?        @map("cancellation_policy")
   // 1..7, 7 = onboarding finished
-  onboardingStep        Int            @default(2) @map("onboarding_step")
-  isDemo                Boolean        @default(false) @map("is_demo")
-  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  onboardingStep       Int            @default(2) @map("onboarding_step")
+  isDemo               Boolean        @default(false) @map("is_demo")
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   members           BusinessMember[]
   invitations       Invitation[]
@@ -205,7 +166,6 @@ model Business {
   appointmentEvents AppointmentEvent[]
   subscription      Subscription?
   payments          Payment[]
-  notificationJobs  NotificationJob[]
   auditLogs         AuditLog[]
 
   @@map("businesses")
@@ -230,7 +190,10 @@ model BusinessMember {
 model Invitation {
   id         String     @id @default(uuid()) @db.Uuid
   businessId String     @map("business_id") @db.Uuid
-  phone      String
+  // Accepting requires this secret link (sha256 stored); phones are unverified, so they prove nothing.
+  tokenHash  String     @unique @map("token_hash")
+  // Optional note for the owner ("who is this for"), not used for matching.
+  phone      String?
   role       MemberRole
   barberId   String?    @map("barber_id") @db.Uuid
   invitedBy  String?    @map("invited_by") @db.Uuid
@@ -241,7 +204,6 @@ model Invitation {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  @@index([phone])
   @@index([businessId])
   @@map("invitations")
 }
@@ -333,16 +295,16 @@ model BarberService {
 }
 
 model Customer {
-  id         String    @id @default(uuid()) @db.Uuid
-  businessId String    @map("business_id") @db.Uuid
-  userId     String?   @map("user_id") @db.Uuid
-  name       String
-  phone      String?
-  notes      String?
+  id           String    @id @default(uuid()) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  name         String
+  phone        String?
+  notes        String?
   // When the customer agreed to processing of personal data for this business.
-  consentAt  DateTime? @map("consent_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  consentAt    DateTime? @map("consent_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   // Anonymised (PII wiped) on deletion request; row kept so appointment history stays consistent.
   anonymizedAt DateTime? @map("anonymized_at") @db.Timestamptz(3)
 
@@ -408,6 +370,8 @@ model Appointment {
   customerNote    String?           @map("customer_note")
   cancelReason    String?           @map("cancel_reason")
   idempotencyKey  String?           @unique @map("idempotency_key")
+  // Guest bookings: sha256 of the secret manage link (/a/<token>) given to the client once.
+  manageTokenHash String?           @unique @map("manage_token_hash")
   createdByUserId String?           @map("created_by_user_id") @db.Uuid
   cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
   completedAt     DateTime?         @map("completed_at") @db.Timestamptz(3)
@@ -420,7 +384,6 @@ model Appointment {
   service  Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   customer Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
   events   AppointmentEvent[]
-  jobs     NotificationJob[]
 
   @@index([businessId, startsAt])
   @@index([barberId, startsAt])
@@ -446,18 +409,18 @@ model AppointmentEvent {
 }
 
 model SubscriptionPlan {
-  id            String      @id @default(uuid()) @db.Uuid
-  code          String      @unique
-  name          String
-  description   String?
-  pricing       PlanPricing
-  priceUzs      Int         @map("price_uzs")
-  minSeats      Int         @default(1) @map("min_seats")
-  maxSeats      Int?        @map("max_seats")
-  trialDays     Int         @default(14) @map("trial_days")
-  isActive      Boolean     @default(true) @map("is_active")
-  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id          String      @id @default(uuid()) @db.Uuid
+  code        String      @unique
+  name        String
+  description String?
+  pricing     PlanPricing
+  priceUzs    Int         @map("price_uzs")
+  minSeats    Int         @default(1) @map("min_seats")
+  maxSeats    Int?        @map("max_seats")
+  trialDays   Int         @default(14) @map("trial_days")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   subscriptions Subscription[]
 
@@ -506,35 +469,6 @@ model Payment {
 
   @@index([businessId])
   @@map("payments")
-}
-
-model NotificationJob {
-  id            String              @id @default(uuid()) @db.Uuid
-  businessId    String?             @map("business_id") @db.Uuid
-  appointmentId String?             @map("appointment_id") @db.Uuid
-  recipientUserId String?           @map("recipient_user_id") @db.Uuid
-  channel       NotificationChannel
-  // APPOINTMENT_CREATED | APPOINTMENT_CANCELLED | APPOINTMENT_RESCHEDULED | REMINDER_24H | REMINDER_2H | NEW_BOOKING_FOR_BARBER ...
-  type          String
-  payload       Json
-  // Prevents duplicate sends for the same logical event.
-  dedupeKey     String              @unique @map("dedupe_key")
-  status        NotificationStatus  @default(PENDING)
-  runAt         DateTime            @default(now()) @map("run_at") @db.Timestamptz(3)
-  attempts      Int                 @default(0)
-  maxAttempts   Int                 @default(5) @map("max_attempts")
-  lastError     String?             @map("last_error")
-  lockedAt      DateTime?           @map("locked_at") @db.Timestamptz(3)
-  lockedBy      String?             @map("locked_by")
-  sentAt        DateTime?           @map("sent_at") @db.Timestamptz(3)
-  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  business    Business?    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-
-  @@index([status, runAt])
-  @@map("notification_jobs")
 }
 
 model AuditLog {

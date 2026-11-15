@@ -1,138 +1,66 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
-import type { User } from '@barberflow/db';
-import { ErrorCodes, MeDto, formatUzPhone } from '@barberflow/shared';
-import { APP_CONFIG, AppConfig } from '../config';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { hashPassword, verifyPassword, type User } from '@barberflow/db';
+import { ErrorCodes, MeDto } from '@barberflow/shared';
 import { AppError } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
-import { hmac, safeEqualHex, sixDigitCode } from './crypto';
-import { SMS_PROVIDER, SmsProvider } from './sms.provider';
-import { verifyTelegramInitData } from './telegram-init-data';
 
-const OTP_TTL_MS = 5 * 60_000;
-const OTP_MAX_ATTEMPTS = 5;
-const OTP_MAX_PER_WINDOW = 3;
-const OTP_WINDOW_MS = 10 * 60_000;
+const MAX_FAILED = 5;
+const LOCK_MS = 15 * 60_000;
 
+/**
+ * Staff authentication: phone + password. Clients never sign in (they book as guests).
+ * Phones are not verified in this product version (no SMS/Telegram), so a phone number grants
+ * nothing by itself: platform admin is assigned only via CLI/seed, staff join businesses only via
+ * secret invitation links.
+ */
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger('Auth');
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly audit: AuditService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
-  ) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
 
-  /** Dev OTP is only possible outside production AND when explicitly enabled. */
-  get devOtpEnabled() {
-    return this.config.NODE_ENV !== 'production' && this.config.OTP_DEV_MODE;
-  }
-
-  async requestOtp(phone: string, ip: string | null): Promise<{ sent: boolean; devCode?: string; expiresInSec: number }> {
-    if (!this.sms.delivers && !this.devOtpEnabled && this.sms.name !== 'console') {
-      throw new AppError(HttpStatus.SERVICE_UNAVAILABLE, 'SMS_UNAVAILABLE', 'SMS provider is not configured');
-    }
-    const recent = await this.prisma.otpCode.count({
-      where: { phone, createdAt: { gt: new Date(Date.now() - OTP_WINDOW_MS) } },
+  async register(input: { name: string; phone: string; password: string }, ip: string | null): Promise<User> {
+    const existing = await this.prisma.user.findUnique({ where: { phone: input.phone } });
+    if (existing) throw new AppError(HttpStatus.CONFLICT, ErrorCodes.PHONE_TAKEN, 'Account already exists');
+    const user = await this.prisma.user.create({
+      data: { phone: input.phone, name: input.name, passwordHash: await hashPassword(input.password), privacyAcceptedAt: new Date() },
     });
-    if (recent >= (this.config.RELAX_RATE_LIMITS ? 100 : OTP_MAX_PER_WINDOW)) {
-      throw new AppError(HttpStatus.TOO_MANY_REQUESTS, ErrorCodes.RATE_LIMITED, 'Too many codes requested');
-    }
-    const code = sixDigitCode();
-    await this.prisma.otpCode.create({
-      data: { phone, codeHash: hmac(this.config.OTP_SECRET, `${phone}:${code}`), expiresAt: new Date(Date.now() + OTP_TTL_MS), ip },
-    });
-    const text = `BARBERFLOW: ${code} — kirish kodi / код для входа. Hech kimga bermang / Никому не сообщайте.`;
-    if (this.sms.delivers || this.sms.name === 'console') {
-      await this.sms.send(phone, text);
-    }
-    return {
-      sent: this.sms.delivers,
-      expiresInSec: OTP_TTL_MS / 1000,
-      ...(this.devOtpEnabled && !this.sms.delivers ? { devCode: code } : {}),
-    };
-  }
-
-  async verifyOtp(phone: string, code: string, name: string | undefined, ip: string | null): Promise<User> {
-    const otp = await this.prisma.otpCode.findFirst({
-      where: { phone, consumedAt: null },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!otp || otp.expiresAt < new Date() || otp.attempts >= OTP_MAX_ATTEMPTS) {
-      throw new AppError(HttpStatus.BAD_REQUEST, ErrorCodes.OTP_EXPIRED, 'Code expired');
-    }
-    // Count the attempt before comparing so parallel guesses cannot exceed the limit unnoticed.
-    const updated = await this.prisma.otpCode.updateMany({
-      where: { id: otp.id, attempts: { lt: OTP_MAX_ATTEMPTS }, consumedAt: null },
-      data: { attempts: { increment: 1 } },
-    });
-    if (updated.count === 0) throw new AppError(HttpStatus.BAD_REQUEST, ErrorCodes.OTP_EXPIRED, 'Code expired');
-    if (!safeEqualHex(otp.codeHash, hmac(this.config.OTP_SECRET, `${phone}:${code}`))) {
-      throw new AppError(HttpStatus.BAD_REQUEST, ErrorCodes.OTP_INVALID, 'Invalid code');
-    }
-    const consumed = await this.prisma.otpCode.updateMany({
-      where: { id: otp.id, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
-    if (consumed.count === 0) throw new AppError(HttpStatus.BAD_REQUEST, ErrorCodes.OTP_EXPIRED, 'Code already used');
-
-    const adminPhones = (this.config.PLATFORM_ADMIN_PHONES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-    const existing = await this.prisma.user.findUnique({ where: { phone } });
-    if (existing?.deletedAt) throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Account deleted');
-    const user = existing
-      ? await this.prisma.user.update({
-          where: { id: existing.id },
-          data: {
-            ...(name && !existing.name ? { name } : {}),
-            ...(adminPhones.includes(phone) ? { platformRole: 'PLATFORM_ADMIN' } : {}),
-          },
-        })
-      : await this.prisma.user.create({
-          data: {
-            phone,
-            name: name || null,
-            privacyAcceptedAt: new Date(),
-            platformRole: adminPhones.includes(phone) ? 'PLATFORM_ADMIN' : 'USER',
-          },
-        });
-    await this.audit.log({ actorUserId: user.id, action: 'auth.login.otp', entityType: 'user', entityId: user.id, ip });
+    await this.audit.log({ actorUserId: user.id, action: 'auth.register', entityType: 'user', entityId: user.id, ip });
     return user;
   }
 
-  async loginWithTelegram(initData: string, ip: string | null): Promise<{ user: User; startParam: string | null }> {
-    if (!this.config.TELEGRAM_BOT_TOKEN) {
-      throw new AppError(HttpStatus.SERVICE_UNAVAILABLE, 'TELEGRAM_NOT_CONFIGURED', 'Telegram bot is not configured');
+  async login(phone: string, password: string, ip: string | null): Promise<User> {
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      throw new AppError(HttpStatus.TOO_MANY_REQUESTS, ErrorCodes.ACCOUNT_LOCKED, 'Account temporarily locked');
     }
-    const verified = verifyTelegramInitData(initData, this.config.TELEGRAM_BOT_TOKEN, this.config.TELEGRAM_AUTH_MAX_AGE);
-    if (!verified) throw new AppError(HttpStatus.UNAUTHORIZED, ErrorCodes.UNAUTHORIZED, 'Invalid Telegram initData');
-    const tg = verified.user;
-    const telegramId = BigInt(tg.id);
-    const displayName = [tg.first_name, tg.last_name].filter(Boolean).join(' ').slice(0, 80) || null;
-    const locale = tg.language_code === 'uz' ? 'uz' : 'ru';
-    const existing = await this.prisma.user.findUnique({ where: { telegramId } });
-    if (existing?.deletedAt) throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Account deleted');
-    const user = existing
-      ? await this.prisma.user.update({
-          where: { id: existing.id },
-          data: {
-            telegramUsername: tg.username ?? null,
-            ...(tg.allows_write_to_pm ? { telegramChatId: telegramId } : {}),
-            ...(!existing.name && displayName ? { name: displayName } : {}),
-          },
-        })
-      : await this.prisma.user.create({
-          data: {
-            telegramId,
-            telegramUsername: tg.username ?? null,
-            telegramChatId: tg.allows_write_to_pm ? telegramId : null,
-            name: displayName,
-            locale,
-            privacyAcceptedAt: new Date(),
-          },
+    const ok = await verifyPassword(password, user?.passwordHash);
+    if (!user || !ok || user.deletedAt) {
+      if (user && !user.deletedAt) {
+        const failed = user.failedLoginCount + 1;
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: failed >= MAX_FAILED ? { failedLoginCount: 0, lockedUntil: new Date(Date.now() + LOCK_MS) } : { failedLoginCount: failed },
         });
-    await this.audit.log({ actorUserId: user.id, action: 'auth.login.telegram', entityType: 'user', entityId: user.id, ip });
-    return { user, startParam: verified.startParam };
+        if (failed >= MAX_FAILED) await this.audit.log({ actorUserId: user.id, action: 'auth.locked', entityType: 'user', entityId: user.id, ip });
+      }
+      // Same answer for unknown phone and wrong password.
+      throw new AppError(HttpStatus.UNAUTHORIZED, ErrorCodes.INVALID_CREDENTIALS, 'Invalid phone or password');
+    }
+    await this.prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } });
+    await this.audit.log({ actorUserId: user.id, action: 'auth.login', entityType: 'user', entityId: user.id, ip });
+    return user;
+  }
+
+  async changePassword(user: User, currentPassword: string, newPassword: string, currentSessionId: string, ip: string | null) {
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      throw new AppError(HttpStatus.UNAUTHORIZED, ErrorCodes.INVALID_CREDENTIALS, 'Wrong current password');
+    }
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false } }),
+      // Sign out every other device.
+      this.prisma.session.updateMany({ where: { userId: user.id, revokedAt: null, NOT: { id: currentSessionId } }, data: { revokedAt: new Date() } }),
+    ]);
+    await this.audit.log({ actorUserId: user.id, action: 'auth.password.change', entityType: 'user', entityId: user.id, ip });
   }
 
   async me(user: User): Promise<MeDto> {
@@ -142,19 +70,13 @@ export class AuthService {
       orderBy: { createdAt: 'asc' },
     });
     const barbers = await this.prisma.barber.findMany({ where: { userId: user.id }, select: { id: true, businessId: true } });
-    const invitations = user.phone
-      ? await this.prisma.invitation.findMany({
-          where: { phone: user.phone, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
-          include: { business: { select: { name: true } } },
-        })
-      : [];
     return {
       id: user.id,
       phone: user.phone,
       name: user.name,
       locale: user.locale === 'uz' ? 'uz' : 'ru',
       isPlatformAdmin: user.platformRole === 'PLATFORM_ADMIN',
-      telegramLinked: user.telegramChatId !== null,
+      mustChangePassword: user.mustChangePassword,
       memberships: memberships.map((m) => ({
         businessId: m.businessId,
         businessName: m.business.name,
@@ -163,11 +85,6 @@ export class AuthService {
         onboardingStep: m.business.onboardingStep,
         barberId: barbers.find((b) => b.businessId === m.businessId)?.id ?? null,
       })),
-      pendingInvitations: invitations.map((i) => ({ id: i.id, businessName: i.business.name, role: i.role })),
     };
-  }
-
-  maskForLog(phone: string) {
-    return formatUzPhone(phone).replace(/\d{3} \d{2}(?= \d{2}$)/, '*** **');
   }
 }

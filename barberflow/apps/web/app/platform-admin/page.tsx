@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Ban, CheckCircle2, CircleDollarSign, RotateCcw, Search, ShieldAlert } from 'lucide-react';
+import { Ban, CheckCircle2, CircleDollarSign, KeyRound, RotateCcw, Search, ShieldAlert } from 'lucide-react';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, Select, Segmented, Sheet, Skeleton, Stat, Textarea } from '@barberflow/ui';
 import { SiteHeader } from '@/components/site-header';
 import { ErrorState, ListSkeleton } from '@/components/states';
@@ -15,7 +15,7 @@ import { useFormat } from '@/lib/format';
 
 interface BizRow {
   id: string; name: string; slug: string; city: string | null; status: 'ACTIVE' | 'BLOCKED'; blockedReason: string | null; isDemo: boolean; createdAt: string;
-  barbers: number; appointments: number; owner: { phone: string | null; name: string | null } | null;
+  barbers: number; appointments: number; owner: { id: string; phone: string | null; name: string | null } | null;
   subscription: { status: string; plan: { code: string; name: string }; seats: number; trialEndsAt: string | null; currentPeriodEnd: string | null } | null;
 }
 interface Plan { id: string; code: string; name: string; description: string | null; pricing: 'FLAT' | 'PER_SEAT'; priceUzs: number; minSeats: number; maxSeats: number | null; trialDays: number; isActive: boolean; _count: { subscriptions: number } }
@@ -87,6 +87,12 @@ function Businesses() {
   const [reason, setReason] = React.useState('');
   const [payForm, setPayForm] = React.useState({ amountUzs: '', periodMonths: '1', method: 'BANK_TRANSFER', reference: '', planId: '' });
   const [error, setError] = React.useState<string | null>(null);
+  const [temp, setTemp] = React.useState<string | null>(null);
+  async function resetOwner(b: BizRow) {
+    if (!b.owner) return;
+    const r = await api<{ temporaryPassword: string }>(`/platform-admin/users/${b.owner.id}/reset-password`, { body: {} });
+    setTemp(r.temporaryPassword);
+  }
 
   async function doBlock() {
     try { await api(`/platform-admin/businesses/${block!.id}/block`, { body: { reason } }); setBlock(null); setReason(''); q.refetch(); } catch (e) { setError(t(errorKey(e))); }
@@ -134,6 +140,7 @@ function Businesses() {
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => { setPay(b); setError(null); }}><CircleDollarSign />{t('admin.recordPayment')}</Button>
+                      {b.owner && <Button size="icon-sm" variant="ghost" title={t('staff.resetPassword')} aria-label={t('staff.resetPassword')} onClick={() => resetOwner(b)}><KeyRound /></Button>}
                       {b.status === 'BLOCKED'
                         ? <Button size="sm" variant="ghost" onClick={() => unblock(b)}><RotateCcw />{t('admin.unblock')}</Button>
                         : <Button size="sm" variant="danger-ghost" onClick={() => { setBlock(b); setError(null); }} data-testid="admin-block"><Ban />{t('admin.block')}</Button>}
@@ -145,6 +152,10 @@ function Businesses() {
           </table>
         </Card>
       )}
+      <Sheet open={Boolean(temp)} onOpenChange={(o) => !o && setTemp(null)} size="sm" title={t('staff.resetPassword')} closeLabel={t('common.close')}>
+        <Alert tone="warning">{t('staff.tempPassword', { password: temp ?? '' })}</Alert>
+        <p className="mt-3 rounded-xl border border-border bg-surface-2 px-4 py-3 text-center font-mono text-[20px] font-bold tracking-wider">{temp}</p>
+      </Sheet>
       <Sheet open={Boolean(block)} onOpenChange={(o) => !o && setBlock(null)} title={`${t('admin.block')}: ${block?.name ?? ''}`} closeLabel={t('common.close')} size="sm"
         footer={<Button variant="danger" block disabled={reason.trim().length < 3} onClick={doBlock}>{t('admin.block')}</Button>}>
         {error && <Alert tone="danger" className="mb-3">{error}</Alert>}
@@ -258,20 +269,8 @@ function Errors() {
   const { t } = useI18n();
   const f = useFormat();
   const errors = useQuery({ queryKey: ['admin-errors'], queryFn: () => api<{ id: string; source: string; message: string; createdAt: string }[]>('/platform-admin/errors') });
-  const jobs = useQuery({ queryKey: ['admin-jobs'], queryFn: () => api<{ byStatus: Record<string, number>; recent: { id: string; type: string; status: string; lastError: string | null; updatedAt: string }[] }>('/platform-admin/notifications') });
   return (
     <div className="flex flex-col gap-4">
-      {jobs.data && (
-        <Card className="p-4">
-          <p className="mb-2 font-medium">{t('admin.notifications')}</p>
-          <div className="flex flex-wrap gap-2">{Object.entries(jobs.data.byStatus).map(([k, v]) => <Badge key={k} tone={k === 'FAILED' ? 'danger' : k === 'SENT' ? 'success' : 'neutral'}>{k}: {v}</Badge>)}</div>
-          {jobs.data.recent.length > 0 && (
-            <div className="mt-3 max-h-52 overflow-y-auto text-[12.5px] text-fg-muted">
-              {jobs.data.recent.map((j) => <p key={j.id} className="font-mono">{f.dayMonth(j.updatedAt)} {f.time(j.updatedAt)} {j.type} {j.status} {j.lastError ?? ''}</p>)}
-            </div>
-          )}
-        </Card>
-      )}
       {errors.isLoading ? <ListSkeleton /> : !errors.data?.length ? <Card><EmptyState icon={CheckCircle2} title={t('admin.noErrors')} /></Card> : (
         <Card className="divide-y divide-border">
           {errors.data.map((e) => (

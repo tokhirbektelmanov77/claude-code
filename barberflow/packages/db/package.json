@@ -11,7 +11,8 @@
     "migrate:dev": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate dev",
     "migrate:deploy": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate deploy",
     "seed": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; tsx prisma/seed.ts",
-    "reset": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate reset --force --skip-seed"
+    "reset": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; prisma migrate reset --force --skip-seed",
+    "admin:create": "if [ -z \"$DATABASE_URL\" ] && [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; tsx prisma/create-admin.ts"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

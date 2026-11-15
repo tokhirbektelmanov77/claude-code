@@ -1,10 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { freshPhone, loginOtp } from './helpers';
+import { freshPhone } from './helpers';
 
 test('new owner registers a barbershop in 7 steps and gets a working link', async ({ page }) => {
   await page.goto('/onboarding');
   await expect(page.getByTestId('onboarding-progress')).toContainText('Шаг 1 из 7');
-  await loginOtp(page, freshPhone());
+  await page.getByTestId('auth-name').fill('Ильхом');
+  await page.getByTestId('auth-phone').fill(freshPhone());
+  await page.getByTestId('auth-password').fill('my-strong-password');
+  await page.getByTestId('auth-submit').click();
 
   await expect(page.getByTestId('onboarding-progress')).toContainText('Шаг 2 из 7');
   const name = `E2E Barber ${Date.now().toString().slice(-5)}`;

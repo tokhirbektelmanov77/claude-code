@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -8,6 +8,8 @@ import type { AuthContext, MembershipContext } from '../common/request-context';
 import { AppError, notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
+import { hashPassword, temporaryPassword } from '@barberflow/db';
+import { newToken, sha256 } from '../auth/crypto';
 import { isManager } from './access';
 
 class InviteDto extends createZodDto(inviteSchema) {}
@@ -33,6 +35,7 @@ export class TeamController {
       this.prisma.invitation.findMany({
         where: { businessId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
         orderBy: { createdAt: 'desc' },
+        select: { id: true, phone: true, role: true, expiresAt: true, createdAt: true },
       }),
     ]);
     return { members, invitations };
@@ -45,11 +48,16 @@ export class TeamController {
       const b = await this.prisma.barber.findFirst({ where: { id: body.barberId, businessId } });
       if (!b) throw notFound('Barber');
     }
+    // The secret link is returned once; only its hash is stored.
+    const token = newToken();
     const inv = await this.prisma.invitation.create({
-      data: { businessId, phone: body.phone, role: body.role, barberId: body.barberId ?? null, invitedBy: auth.user.id, expiresAt: new Date(Date.now() + 14 * 86400_000) },
+      data: {
+        businessId, tokenHash: sha256(token), phone: body.phone, role: body.role, barberId: body.barberId ?? null,
+        invitedBy: auth.user.id, expiresAt: new Date(Date.now() + 14 * 86400_000),
+      },
     });
     await this.audit.log({ actorUserId: auth.user.id, businessId, action: 'member.invite', entityType: 'invitation', entityId: inv.id, data: { role: body.role }, ip });
-    return inv;
+    return { id: inv.id, role: inv.role, phone: inv.phone, expiresAt: inv.expiresAt, invitePath: `/invite/${token}` };
   }
 
   @Delete('invitations/:id')
@@ -78,6 +86,29 @@ export class TeamController {
     const updated = await this.prisma.businessMember.update({ where: { id: memberId }, data: body });
     await this.audit.log({ actorUserId: auth.user.id, businessId, action: 'member.update', entityType: 'member', entityId: memberId, data: { ...body }, ip });
     return updated;
+  }
+
+  /**
+   * Password recovery without SMS: the owner issues a one-time temporary password to a staff member
+   * (never to another owner) and hands it over in person. The user must change it at next sign-in.
+   */
+  @Post('members/:memberId/reset-password')
+  @HttpCode(200)
+  @BusinessRoles('OWNER')
+  async resetMemberPassword(
+    @Param('businessId') businessId: string, @Param('memberId', ParseUUIDPipe) memberId: string,
+    @CurrentAuth() auth: AuthContext, @ReqIp() ip: string | null,
+  ) {
+    const member = await this.prisma.businessMember.findFirst({ where: { id: memberId, businessId } });
+    if (!member) throw notFound('Member');
+    if (member.role === 'OWNER' || member.userId === auth.user.id) throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Cannot reset an owner password');
+    const temp = temporaryPassword();
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: member.userId }, data: { passwordHash: await hashPassword(temp), mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } }),
+      this.prisma.session.updateMany({ where: { userId: member.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+    await this.audit.log({ actorUserId: auth.user.id, businessId, action: 'member.password.reset', entityType: 'user', entityId: member.userId, ip });
+    return { temporaryPassword: temp };
   }
 
   // ---------------- Customers ----------------

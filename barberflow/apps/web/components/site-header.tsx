@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { CalendarCheck, LayoutGrid, Shield } from 'lucide-react';
+import { CalendarCheck, LayoutGrid, Scissors, Shield } from 'lucide-react';
 import { Button, Logo, cn } from '@barberflow/ui';
 import { useMe } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
@@ -19,27 +19,27 @@ export function SiteHeader({ className, minimal, overlay }: { className?: string
         <LanguageSwitch />
         <ThemeToggle />
         {!minimal && (
-          me ? (
-            <div className="flex items-center gap-1">
-              {me.isPlatformAdmin && (
-                <Button asChild variant="ghost" size="icon" aria-label={t('nav.platformAdmin')} title={t('nav.platformAdmin')}>
-                  <Link href="/platform-admin"><Shield /></Link>
-                </Button>
-              )}
-              {me.memberships.length > 0 && (
-                <Button asChild variant="ghost" size="icon" aria-label={t('nav.cabinet')} title={t('nav.cabinet')}>
-                  <Link href="/app"><LayoutGrid /></Link>
-                </Button>
-              )}
-              <Button asChild variant="ghost" size="icon" aria-label={t('nav.myBookings')} title={t('nav.myBookings')}>
-                <Link href="/me"><CalendarCheck /></Link>
-              </Button>
-            </div>
-          ) : (
-            <Button asChild variant="outline" size="sm" className="ml-1 rounded-full bg-bg/30 backdrop-blur-sm">
-              <Link href="/login">{t('common.login')}</Link>
+          <div className="flex items-center gap-1">
+            <Button asChild variant="ghost" size="icon" aria-label={t('nav.myBookings')} title={t('nav.myBookings')}>
+              <Link href="/me" data-testid="nav-my-bookings"><CalendarCheck /></Link>
             </Button>
-          )
+            {me?.isPlatformAdmin && (
+              <Button asChild variant="ghost" size="icon" aria-label={t('nav.platformAdmin')} title={t('nav.platformAdmin')}>
+                <Link href="/platform-admin"><Shield /></Link>
+              </Button>
+            )}
+            {me ? (
+              <Button asChild variant="ghost" size="icon" aria-label={t('nav.cabinet')} title={t('nav.cabinet')}>
+                <Link href={me.memberships.length ? '/app' : '/account'}><LayoutGrid /></Link>
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm" className="ml-1 rounded-full bg-bg/30 px-2.5 backdrop-blur-sm min-[400px]:px-3">
+                <Link href="/login" data-testid="nav-staff-login" aria-label={t('nav.forBarbers')} title={t('nav.forBarbers')}>
+                  <Scissors className="min-[400px]:hidden" /><span className="hidden min-[400px]:inline">{t('nav.forBarbers')}</span>
+                </Link>
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </header>

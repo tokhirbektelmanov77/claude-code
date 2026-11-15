@@ -4,12 +4,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@barberflow/ui';
 import { PhotoHero } from '@/components/photo-hero';
 import { SiteHeader } from '@/components/site-header';
-import { OtpLogin } from '@/components/otp-login';
+import { StaffAuth } from '@/components/staff-auth';
 import { useI18n } from '@/lib/i18n';
 
 function safeNext(v: string | null): string {
   // Only same-site relative paths: no open redirects.
-  return v && v.startsWith('/') && !v.startsWith('//') ? v : '/me';
+  return v && v.startsWith('/') && !v.startsWith('//') ? v : '/app';
 }
 
 function LoginInner() {
@@ -21,7 +21,7 @@ function LoginInner() {
       <Card className="bf-enter -mt-10 p-5 sm:p-7">
         <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('auth.title')}</h1>
         <p className="mb-6 mt-1 text-[14.5px] text-fg-muted">{t('auth.subtitle')}</p>
-        <OtpLogin onSuccess={(me) => router.replace(next === '/me' && me.memberships.length ? '/app' : next)} />
+        <StaffAuth onSuccess={(me) => router.replace(me.mustChangePassword ? '/account?change=1' : next === '/app' && !me.memberships.length ? '/onboarding' : next)} />
       </Card>
     </main>
   );

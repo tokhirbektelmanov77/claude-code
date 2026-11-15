@@ -1,17 +1,18 @@
 'use client';
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, UserPlus, Users } from 'lucide-react';
+import { KeyRound, Pencil, Plus, UserPlus, Users } from 'lucide-react';
 import { Alert, Avatar, Badge, Button, Card, Checkbox, EmptyState, Field, Input, Select, Sheet, Skeleton, Switch } from '@barberflow/ui';
 import { normalizeUzPhone, MemberRole } from '@barberflow/shared';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { errorKey } from '@/lib/errors';
 import { useFormat } from '@/lib/format';
+import { CopyField } from '@/components/copy-field';
 import { BarberRow, useBarbers, useServices, useWorkspace } from '@/lib/workspace';
 
 interface Branch { id: string; name: string }
-interface Members { members: { id: string; role: MemberRole; status: 'ACTIVE' | 'DISABLED'; user: { id: string; name: string | null; phone: string | null } }[]; invitations: { id: string; phone: string; role: MemberRole; expiresAt: string }[] }
+interface Members { members: { id: string; role: MemberRole; status: 'ACTIVE' | 'DISABLED'; user: { id: string; name: string | null; phone: string | null } }[]; invitations: { id: string; phone: string | null; role: MemberRole; expiresAt: string }[] }
 
 export default function StaffPage() {
   const { t } = useI18n();
@@ -22,6 +23,11 @@ export default function StaffPage() {
   const members = useQuery({ queryKey: ['members', ws.businessId], queryFn: () => api<Members>(`/businesses/${ws.businessId}/members`) });
   const [edit, setEdit] = React.useState<BarberRow | 'new' | null>(null);
   const [invite, setInvite] = React.useState(false);
+  const [temp, setTemp] = React.useState<{ name: string; password: string } | null>(null);
+  async function resetPassword(memberId: string, name: string) {
+    const r = await api<{ temporaryPassword: string }>(`/businesses/${ws.businessId}/members/${memberId}/reset-password`, { body: {} });
+    setTemp({ name, password: r.temporaryPassword });
+  }
 
   return (
     <div className="bf-enter flex flex-col gap-6">
@@ -64,12 +70,15 @@ export default function StaffPage() {
                     {(['OWNER', 'MANAGER', 'BARBER'] as const).map((r) => <option key={r} value={r}>{t(`role.${r}`)}</option>)}
                   </Select>
                 ) : <Badge>{t(`role.${m.role}`)}</Badge>}
+                {ws.role === 'OWNER' && m.role !== 'OWNER' && m.user.id !== ws.me.id && (
+                  <Button variant="ghost" size="icon-sm" title={t('staff.resetPassword')} aria-label={t('staff.resetPassword')} onClick={() => resetPassword(m.id, m.user.name ?? '')} data-testid="reset-password"><KeyRound /></Button>
+                )}
                 {m.status === 'DISABLED' && <Badge tone="danger">{t('common.inactive')}</Badge>}
               </div>
             ))}
             {members.data.invitations.map((i) => (
               <div key={i.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1"><p className="font-medium tabular-nums">{f.phone(i.phone)}</p><p className="text-[13px] text-fg-muted">{t('staff.pending')}</p></div>
+                <div className="min-w-0 flex-1"><p className="font-medium tabular-nums">{i.phone ? f.phone(i.phone) : '—'}</p><p className="text-[13px] text-fg-muted">{t('staff.pending')}</p></div>
                 <Badge tone="warning">{t(`role.${i.role}`)}</Badge>
                 <Button variant="ghost" size="sm" onClick={async () => { await api(`/businesses/${ws.businessId}/invitations/${i.id}`, { method: 'DELETE' }); members.refetch(); }}>{t('common.cancel')}</Button>
               </div>
@@ -78,6 +87,10 @@ export default function StaffPage() {
         )}
       </section>
       <BarberSheet value={edit} onClose={() => { setEdit(null); qc.invalidateQueries({ queryKey: ['barbers'] }); }} />
+      <Sheet open={Boolean(temp)} onOpenChange={(o) => !o && setTemp(null)} size="sm" title={`${t('staff.resetPassword')}: ${temp?.name ?? ''}`} closeLabel={t('common.close')}>
+        <Alert tone="warning">{t('staff.tempPassword', { password: temp?.password ?? '' })}</Alert>
+        <p className="mt-3 rounded-xl border border-border bg-surface-2 px-4 py-3 text-center font-mono text-[20px] font-bold tracking-wider" data-testid="temp-password">{temp?.password}</p>
+      </Sheet>
       <InviteSheet open={invite} onClose={() => { setInvite(false); members.refetch(); }} barbers={barbers.data ?? []} />
     </div>
   );
@@ -148,38 +161,51 @@ function BarberSheet({ value, onClose }: { value: BarberRow | 'new' | null; onCl
 function InviteSheet({ open, onClose, barbers }: { open: boolean; onClose: () => void; barbers: BarberRow[] }) {
   const { t } = useI18n();
   const ws = useWorkspace();
-  const [phone, setPhone] = React.useState('+998 ');
+  const [phone, setPhone] = React.useState('');
   const [role, setRole] = React.useState<'BARBER' | 'MANAGER'>('BARBER');
   const [barberId, setBarberId] = React.useState('');
-  const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const [link, setLink] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { if (open) { setMsg(null); setPhone('+998 '); } }, [open]);
-  const valid = normalizeUzPhone(phone) !== null;
-  async function send() {
+  React.useEffect(() => { if (open) { setLink(null); setError(null); setPhone(''); } }, [open]);
+  const phoneOk = !phone.trim() || normalizeUzPhone(phone) !== null;
+  async function create() {
     setBusy(true);
+    setError(null);
     try {
-      await api(`/businesses/${ws.businessId}/invitations`, { body: { phone: normalizeUzPhone(phone), role, barberId: barberId || undefined } });
-      setMsg({ ok: true, text: t('staff.inviteSent') });
-    } catch (e) { setMsg({ ok: false, text: t(errorKey(e)) }); } finally { setBusy(false); }
+      const r = await api<{ invitePath: string }>(`/businesses/${ws.businessId}/invitations`, { body: { phone: phone.trim() ? normalizeUzPhone(phone) : '', role, barberId: barberId || undefined } });
+      setLink(`${window.location.origin}${r.invitePath}`);
+    } catch (e) { setError(t(errorKey(e))); } finally { setBusy(false); }
   }
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title={t('staff.inviteTitle')} description={t('staff.inviteHint')} closeLabel={t('common.close')}
-      footer={<Button block size="lg" loading={busy} disabled={!valid} onClick={send}>{t('staff.invite')}</Button>}>
+      footer={link ? <Button block size="lg" variant="outline" onClick={onClose}>{t('common.done')}</Button> : <Button block size="lg" loading={busy} disabled={!phoneOk} onClick={create} data-testid="create-invite">{t('staff.invite')}</Button>}>
       <div className="flex flex-col gap-3.5">
-        {msg && <Alert tone={msg.ok ? 'success' : 'danger'}>{msg.text}</Alert>}
-        <Field label={t('common.phone')} error={!valid && phone.length > 6 ? t('errors.INVALID_PHONE') : undefined}><Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
-        <Field label={t('common.status')}>
-          <Select value={role} onChange={(e) => setRole(e.target.value as 'BARBER' | 'MANAGER')}>
-            <option value="BARBER">{t('role.BARBER')}</option><option value="MANAGER">{t('role.MANAGER')}</option>
-          </Select>
-        </Field>
-        {role === 'BARBER' && (
-          <Field label={t('staff.linkToBarber')}>
-            <Select value={barberId} onChange={(e) => setBarberId(e.target.value)}>
-              <option value="">—</option>
-              {barbers.filter((b) => !b.userId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </Select>
-          </Field>
+        {error && <Alert tone="danger">{error}</Alert>}
+        {link ? (
+          <>
+            <Alert tone="success">{t('staff.inviteSent')}</Alert>
+            <div data-testid="invite-link"><CopyField value={link} /></div>
+          </>
+        ) : (
+          <>
+            <Field label={t('common.status')}>
+              <Select value={role} onChange={(e) => setRole(e.target.value as 'BARBER' | 'MANAGER')}>
+                <option value="BARBER">{t('role.BARBER')}</option><option value="MANAGER">{t('role.MANAGER')}</option>
+              </Select>
+            </Field>
+            {role === 'BARBER' && (
+              <Field label={t('staff.linkToBarber')}>
+                <Select value={barberId} onChange={(e) => setBarberId(e.target.value)}>
+                  <option value="">—</option>
+                  {barbers.filter((b) => !b.userId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </Select>
+              </Field>
+            )}
+            <Field label={t('staff.invitePhoneNote')} optionalText={t('common.optional')} error={!phoneOk ? t('errors.INVALID_PHONE') : undefined}>
+              <Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
+            </Field>
+          </>
         )}
       </div>
     </Sheet>

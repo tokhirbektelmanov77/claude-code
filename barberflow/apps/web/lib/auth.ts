@@ -28,8 +28,3 @@ export function useLogout() {
     window.location.href = '/';
   };
 }
-
-export interface AuthMethods { otp: boolean; otpDevMode: boolean; telegram: boolean; telegramBotUsername: string | null }
-export function useAuthMethods() {
-  return useQuery<AuthMethods>({ queryKey: ['auth-methods'], queryFn: () => api('/auth/methods'), staleTime: 300_000 });
-}

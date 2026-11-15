@@ -12,7 +12,7 @@ async function bootstrap() {
     app,
     new DocumentBuilder()
       .setTitle('BARBERFLOW API')
-      .setDescription('Booking platform for barbers in Uzbekistan. Auth: HttpOnly session cookie `bf_session`.')
+      .setDescription('Booking platform for barbers in Uzbekistan. Clients book as guests (name + phone, secret manage link). Staff auth: phone + password, HttpOnly session cookie `bf_session`.')
       .setVersion('0.1.0')
       .addCookieAuth('bf_session')
       .build(),
@@ -21,7 +21,6 @@ async function bootstrap() {
 
   await app.listen(config.PORT);
   new Logger('Bootstrap').log(`API on http://localhost:${config.PORT} (docs: /docs)`);
-  if (config.OTP_DEV_MODE) new Logger('Bootstrap').warn('OTP_DEV_MODE is ON: one-time codes are returned in API responses. Development only.');
 }
 
 bootstrap();

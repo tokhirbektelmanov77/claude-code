@@ -3,13 +3,13 @@ import { Prisma, AppointmentSource, AppointmentStatus } from '@barberflow/db';
 import { checkSlot, ErrorCodes, SlotRejection } from '@barberflow/shared';
 import { AppError, conflict, forbidden, notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { newToken, sha256 } from '../auth/crypto';
 import { AvailabilityService } from './availability.service';
 
 type Tx = Prisma.TransactionClient;
 
 export type CustomerSpec =
-  | { kind: 'user'; userId: string; name: string; phone: string | null }
+  | { kind: 'guest'; name: string; phone: string }
   | { kind: 'existing'; customerId: string }
   | { kind: 'new'; name: string; phone: string | null };
 
@@ -19,7 +19,8 @@ export interface CreateAppointmentParams {
   startsAt: Date;
   customer: CustomerSpec;
   source: AppointmentSource;
-  actorUserId: string;
+  /** null for guest (online) bookings: clients have no accounts. */
+  actorUserId: string | null;
   note?: string | null;
   /** Client-supplied key; a retried request with the same key returns the original appointment. */
   idempotencyKey?: string | null;
@@ -29,6 +30,9 @@ export interface CreateAppointmentParams {
   businessId?: string;
   consent?: boolean;
 }
+
+/** Max simultaneously active future bookings one phone may hold per business (guest spam guard). */
+export const GUEST_ACTIVE_BOOKINGS_LIMIT = 3;
 
 export const APPOINTMENT_INCLUDE = {
   barber: { select: { id: true, name: true, slug: true, photoUrl: true, userId: true } },
@@ -65,7 +69,6 @@ export class BookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
-    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -76,15 +79,30 @@ export class BookingService {
     await tx.$queryRaw`SELECT id FROM barbers WHERE id = ${barberId}::uuid FOR UPDATE`;
   }
 
-  private scopedKey(actorUserId: string, key?: string | null) {
-    return key ? `${actorUserId}:${key}`.slice(0, 200) : null;
+  /** Idempotency keys are scoped to the staff user, or to the guest's phone. */
+  private scopedKey(p: CreateAppointmentParams) {
+    if (!p.idempotencyKey) return null;
+    const scope = p.actorUserId ?? (p.customer.kind === 'guest' ? `guest:${p.customer.phone}` : 'anon');
+    return `${scope}:${p.idempotencyKey}`.slice(0, 200);
   }
 
-  async create(p: CreateAppointmentParams): Promise<{ appointment: AppointmentWithRefs; replayed: boolean }> {
-    const key = this.scopedKey(p.actorUserId, p.idempotencyKey);
+  /**
+   * A replayed guest request gets a fresh manage token (only the hash is stored, so the original
+   * cannot be returned). Only the holder of the random idempotency key can trigger this.
+   */
+  private async replay(existing: AppointmentWithRefs, guest: boolean, db: Tx = this.prisma) {
+    if (!guest) return { appointment: existing, replayed: true };
+    const manageToken = newToken();
+    await db.appointment.update({ where: { id: existing.id }, data: { manageTokenHash: sha256(manageToken) } });
+    return { appointment: existing, replayed: true, manageToken };
+  }
+
+  async create(p: CreateAppointmentParams): Promise<{ appointment: AppointmentWithRefs; replayed: boolean; manageToken?: string }> {
+    const key = this.scopedKey(p);
+    const guest = p.customer.kind === 'guest';
     if (key) {
       const existing = await this.prisma.appointment.findUnique({ where: { idempotencyKey: key }, include: APPOINTMENT_INCLUDE });
-      if (existing) return { appointment: existing, replayed: true };
+      if (existing) return this.replay(existing, guest);
     }
 
     const barber = await this.availability.getBarberWithBusiness(p.barberId);
@@ -100,8 +118,17 @@ export class BookingService {
         // A concurrent retry with the same key may have committed while we waited for the lock.
         if (key) {
           const dup = await tx.appointment.findUnique({ where: { idempotencyKey: key }, include: APPOINTMENT_INCLUDE });
-          if (dup) return { appointment: dup, replayed: true };
+          if (dup) return this.replay(dup, guest, tx);
         }
+        if (p.customer.kind === 'guest') {
+          const active = await tx.appointment.count({
+            where: { businessId: barber.businessId, status: 'CONFIRMED', startsAt: { gt: new Date() }, customer: { phone: p.customer.phone } },
+          });
+          if (active >= GUEST_ACTIVE_BOOKINGS_LIMIT) {
+            throw new AppError(HttpStatus.TOO_MANY_REQUESTS, ErrorCodes.TOO_MANY_BOOKINGS, 'Too many active bookings for this phone');
+          }
+        }
+        const manageToken = guest ? newToken() : undefined;
         const end = new Date(p.startsAt.getTime() + service.durationMin * 60_000);
         const blockedUntil = new Date(end.getTime() + service.bufferAfterMin * 60_000);
         const ctx = await this.availability.buildContext(p.barberId, { from: new Date(p.startsAt.getTime() - 86400_000), to: new Date(blockedUntil.getTime() + 86400_000) }, {}, tx);
@@ -127,11 +154,12 @@ export class BookingService {
             serviceName: service.name,
             customerNote: p.note ?? null,
             idempotencyKey: key,
+            manageTokenHash: manageToken ? sha256(manageToken) : null,
             createdByUserId: p.actorUserId,
           },
           include: APPOINTMENT_INCLUDE,
         });
-        const event = await tx.appointmentEvent.create({
+        await tx.appointmentEvent.create({
           data: {
             appointmentId: created.id,
             businessId: created.businessId,
@@ -140,20 +168,19 @@ export class BookingService {
             data: { source: p.source, startsAt: created.startsAt.toISOString() },
           },
         });
-        await this.notifications.onAppointmentEvent(tx, this.ref(created), 'APPOINTMENT_CREATED', event.id);
-        return { appointment: created, replayed: false };
+        return { appointment: created, replayed: false, manageToken };
       });
     } catch (e) {
       if (key && isUniqueViolation(e, 'idempotency_key')) {
         const existing = await this.prisma.appointment.findUnique({ where: { idempotencyKey: key }, include: APPOINTMENT_INCLUDE });
-        if (existing) return { appointment: existing, replayed: true };
+        if (existing) return this.replay(existing, guest);
       }
       if (isOverlapViolation(e)) throw conflict(ErrorCodes.SLOT_TAKEN, 'This time is already booked');
       throw e;
     }
   }
 
-  async reschedule(appointmentId: string, startsAt: Date, actorUserId: string, opts: { staff: boolean; businessId?: string }) {
+  async reschedule(appointmentId: string, startsAt: Date, actorUserId: string | null, opts: { staff: boolean; businessId?: string }) {
     const current = await this.prisma.appointment.findUnique({ where: { id: appointmentId } });
     if (!current || (opts.businessId && current.businessId !== opts.businessId)) throw notFound('Appointment');
     if (current.status !== 'CONFIRMED') throw conflict(ErrorCodes.INVALID_STATE, 'Only confirmed appointments can be moved');
@@ -180,7 +207,7 @@ export class BookingService {
           data: { startsAt, endsAt: end, blockedUntil },
           include: APPOINTMENT_INCLUDE,
         });
-        const event = await tx.appointmentEvent.create({
+        await tx.appointmentEvent.create({
           data: {
             appointmentId: fresh.id,
             businessId: fresh.businessId,
@@ -189,7 +216,6 @@ export class BookingService {
             data: { from: fresh.startsAt.toISOString(), to: startsAt.toISOString() },
           },
         });
-        await this.notifications.onAppointmentEvent(tx, this.ref(updated), 'APPOINTMENT_RESCHEDULED', event.id);
         return updated;
       });
     } catch (e) {
@@ -198,7 +224,7 @@ export class BookingService {
     }
   }
 
-  async cancel(appointmentId: string, actorUserId: string, reason: string | null, opts: { businessId?: string }) {
+  async cancel(appointmentId: string, actorUserId: string | null, reason: string | null, opts: { businessId?: string }) {
     return this.prisma.$transaction(async (tx) => {
       const appt = await tx.appointment.findUnique({ where: { id: appointmentId } });
       if (!appt || (opts.businessId && appt.businessId !== opts.businessId)) throw notFound('Appointment');
@@ -209,10 +235,9 @@ export class BookingService {
       });
       if (res.count === 0) throw conflict(ErrorCodes.INVALID_STATE, 'Appointment is not active');
       const updated = await tx.appointment.findUniqueOrThrow({ where: { id: appt.id }, include: APPOINTMENT_INCLUDE });
-      const event = await tx.appointmentEvent.create({
+      await tx.appointmentEvent.create({
         data: { appointmentId: appt.id, businessId: appt.businessId, type: 'CANCELLED', actorUserId, data: { reason } },
       });
-      await this.notifications.onAppointmentEvent(tx, this.ref(updated), 'APPOINTMENT_CANCELLED', event.id);
       return updated;
     });
   }
@@ -230,10 +255,6 @@ export class BookingService {
       });
       if (res.count === 0) throw conflict(ErrorCodes.INVALID_STATE, 'Appointment is not active');
       await tx.appointmentEvent.create({ data: { appointmentId: appt.id, businessId, type: status, actorUserId } });
-      await tx.notificationJob.updateMany({
-        where: { appointmentId: appt.id, status: 'PENDING' },
-        data: { status: 'SKIPPED', lastError: 'APPOINTMENT_CLOSED' },
-      });
       return tx.appointment.findUniqueOrThrow({ where: { id: appt.id }, include: APPOINTMENT_INCLUDE });
     });
   }
@@ -255,26 +276,16 @@ export class BookingService {
       if (!c) throw notFound('Customer');
       return c.id;
     }
-    if (spec.kind === 'user') {
-      const byUser = await tx.customer.findFirst({ where: { businessId, userId: spec.userId } });
-      if (byUser) {
-        await tx.customer.update({
-          where: { id: byUser.id },
-          data: { name: spec.name, ...(spec.phone && !byUser.phone ? { phone: spec.phone } : {}), ...(consentAt ? { consentAt } : {}), anonymizedAt: null },
-        });
-        return byUser.id;
-      }
-      if (spec.phone) {
-        const byPhone = await tx.customer.findUnique({ where: { businessId_phone: { businessId, phone: spec.phone } } });
-        if (byPhone) {
-          // Same phone booked before via staff: link it to the now-verified account.
-          await tx.customer.update({ where: { id: byPhone.id }, data: { userId: spec.userId, name: spec.name, ...(consentAt ? { consentAt } : {}) } });
-          return byPhone.id;
-        }
-      }
-      const c = await tx.customer.create({ data: { businessId, userId: spec.userId, name: spec.name, phone: spec.phone, consentAt } });
+    if (spec.kind === 'guest') {
+      // Same phone = same client card in this business (history, notes). The latest name wins.
+      const c = await tx.customer.upsert({
+        where: { businessId_phone: { businessId, phone: spec.phone } },
+        update: { name: spec.name, anonymizedAt: null, ...(consentAt ? { consentAt } : {}) },
+        create: { businessId, name: spec.name, phone: spec.phone, consentAt },
+      });
       return c.id;
     }
+    // Staff-entered walk-in: reuse the client card by phone when given.
     if (spec.phone) {
       const c = await tx.customer.upsert({
         where: { businessId_phone: { businessId, phone: spec.phone } },
@@ -285,16 +296,6 @@ export class BookingService {
     }
     const c = await tx.customer.create({ data: { businessId, name: spec.name } });
     return c.id;
-  }
-
-  private ref(a: AppointmentWithRefs) {
-    return {
-      id: a.id,
-      businessId: a.businessId,
-      startsAt: a.startsAt,
-      barberUserId: a.barber.userId,
-      customerUserId: a.customer.userId,
-    };
   }
 }
 

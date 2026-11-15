@@ -17,7 +17,7 @@ test('language switch RU → UZ persists across reloads', async ({ page }) => {
 
 test('mobile layout: no horizontal scroll on key screens (375px)', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 740 });
-  for (const path of ['/', '/s/barberflow-demo', '/b/aziz', '/login', '/onboarding']) {
+  for (const path of ['/', '/s/barberflow-demo', '/b/aziz', '/me', '/login', '/onboarding']) {
     await page.goto(path);
     await page.waitForLoadState('networkidle');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
