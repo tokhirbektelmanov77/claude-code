@@ -20,14 +20,14 @@ function AppointmentRow({ a }: { a: AppointmentDto }) {
   return (
     <Link href={`/me/appointments/${a.id}`} className="group block" data-testid="my-appointment">
       <Card interactive className="flex items-center gap-3 p-3.5">
-        <div className="grid w-14 shrink-0 place-items-center rounded-xl bg-surface-2 py-2 text-center">
-          <span className="text-[19px] font-semibold leading-none tabular-nums">{f.time(a.startsAt)}</span>
+        <div className="grid w-16 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 py-2.5 text-center">
+          <span className="text-[19px] font-extrabold leading-none tabular-nums">{f.time(a.startsAt)}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{a.serviceName}</p>
+          <p className="truncate font-bold">{a.serviceName}</p>
           <p className="truncate text-[13px] text-fg-muted">{f.dayMonth(localDateOf(a.startsAt, a.business?.timezone))} · {a.barber?.name} · {a.business?.name}</p>
+          <div className="mt-1.5"><StatusBadge status={a.status} /></div>
         </div>
-        <StatusBadge status={a.status} />
         <ChevronRight className="size-4 text-fg-subtle" />
       </Card>
     </Link>
@@ -115,7 +115,7 @@ function MeInner() {
       <div className="flex items-center gap-3">
         <Avatar name={me.data.name ?? me.data.phone ?? '?'} size={48} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-[22px] font-semibold tracking-tight">{t('me.title')}</h1>
+          <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('me.title')}</h1>
           <p className="text-[13.5px] text-fg-muted">{me.data.name ?? ''} {me.data.phone ? `· ${fmt.phone(me.data.phone)}` : ''}</p>
         </div>
       </div>

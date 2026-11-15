@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { DateTime } from 'luxon';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Plus, UserX } from 'lucide-react';
 import { Button, Segmented, Select, Skeleton, cn } from '@barberflow/ui';
 import type { AppointmentDto } from '@barberflow/shared';
 import { api } from '@/lib/api';
@@ -17,11 +17,16 @@ import type { CalendarBarber, CalendarException, CalendarFeed } from '@/componen
 
 const PX = 1.15; // pixels per minute
 
+// Status = bar colour + background tint + icon + legend; never colour alone (readability, colour-blind safe).
 const tone: Record<AppointmentDto['status'], string> = {
-  CONFIRMED: 'border-l-primary bg-surface shadow-[0_1px_3px_rgb(0_0_0/0.08)]',
-  COMPLETED: 'border-l-success bg-success/8',
-  NO_SHOW: 'border-l-danger bg-danger/8',
-  CANCELLED: 'border-l-border-strong bg-surface-2 opacity-60',
+  CONFIRMED: 'border-l-st-confirmed bg-surface text-fg',
+  COMPLETED: 'border-l-st-completed bg-st-completed/16 text-fg',
+  NO_SHOW: 'border-l-st-noshow bg-st-noshow/18 text-fg',
+  CANCELLED: 'border-l-st-cancelled bg-neutral/40 text-fg-muted line-through',
+};
+const statusIcon: Partial<Record<AppointmentDto['status'], React.ComponentType<{ className?: string }>>> = {
+  COMPLETED: Check,
+  NO_SHOW: UserX,
 };
 
 interface Column { key: string; date: string; barber: CalendarBarber; label: string; sub?: string }
@@ -73,7 +78,7 @@ export default function CalendarPage() {
   return (
     <div className="bf-enter flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('cabinet.calendar')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('cabinet.calendar')}</h1>
         <Button onClick={() => setManual({ date, barberId: barberFilter !== 'all' ? barberFilter : ws.barberId })}><Plus />{t('today.newAppointment')}</Button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -93,14 +98,14 @@ export default function CalendarPage() {
       </div>
 
       {feed.isLoading ? <Skeleton className="h-[480px]" /> : feed.isError ? <ErrorState error={feed.error} onRetry={() => feed.refetch()} /> : (
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+        <div className="overflow-hidden rounded-2xl border border-border bg-bg">
           <div className="overflow-x-auto">
             <div className="min-w-full" style={{ width: Math.max(columns.length * (view === 'week' ? 110 : 160) + 52, 0) }}>
-              <div className="sticky top-0 z-10 flex border-b border-border bg-surface">
+              <div className="sticky top-0 z-10 flex border-b border-border bg-bg">
                 <div className="w-[52px] shrink-0" />
                 {columns.map((c) => (
                   <div key={c.key} className="min-w-0 flex-1 border-l border-border px-2 py-2.5 text-center">
-                    <p className={cn('truncate text-[13.5px] font-semibold', c.date === today && view === 'week' && 'text-accent')}>{c.label}</p>
+                    <p className={cn('truncate text-[13.5px] font-bold', c.date === today && view === 'week' && 'text-primary underline decoration-accent decoration-2 underline-offset-4')}>{c.label}</p>
                     {c.sub && <p className="text-[11px] text-fg-subtle">{c.sub}</p>}
                   </div>
                 ))}
@@ -130,10 +135,19 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-3 text-[12.5px] text-fg-muted">
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-sm border border-border bg-surface" />{t('calendar.free')}</span>
-        <span className="inline-flex items-center gap-1.5"><span className="bf-hatch size-3 rounded-sm border border-border" />{t('calendar.off')}</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-sm bg-warning/30" />{t('calendar.blocked')}</span>
+      <div className="flex flex-wrap gap-x-4 gap-y-2 text-[12.5px] text-fg-muted" data-testid="calendar-legend">
+        {(['CONFIRMED', 'COMPLETED', 'NO_SHOW'] as const).map((st) => {
+          const Icon = statusIcon[st];
+          return (
+            <span key={st} className="inline-flex items-center gap-1.5">
+              <span className={cn('inline-flex h-4 w-5 items-center justify-center rounded-[4px] border border-l-[3px] border-border', tone[st])}>{Icon && <Icon className="size-2.5" />}</span>
+              {t(`status.${st}`)}
+            </span>
+          );
+        })}
+        <span className="inline-flex items-center gap-1.5"><span className="h-4 w-5 rounded-[4px] border border-border bg-surface-2" />{t('calendar.free')}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="bf-hatch h-4 w-5 rounded-[4px] border border-border" />{t('calendar.off')}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-4 w-5 rounded-[4px] border border-st-block/50 bg-st-block/20" />{t('calendar.blocked')}</span>
       </div>
       <AppointmentSheet id={openId} onClose={() => setOpenId(null)} />
       <ManualBookingSheet open={Boolean(manual)} onOpenChange={(o) => !o && setManual(null)} defaultDate={manual?.date} defaultBarberId={manual?.barberId} />
@@ -167,7 +181,7 @@ function DayColumn({
           type="button"
           onClick={onEmpty}
           aria-label={t('today.newAppointment')}
-          className="absolute inset-x-0 bg-surface transition-colors hover:bg-surface-2/50"
+          className="absolute inset-x-0 bg-surface-2 transition-colors hover:bg-surface-3/50"
           style={{ top: y(w.startMin), height: (w.endMin - w.startMin) * PX }}
         />
       ))}
@@ -178,7 +192,7 @@ function DayColumn({
         const s = clampMin(e.startsAt);
         const en = clampMin(e.endsAt);
         return (
-          <div key={e.id} className="pointer-events-none absolute inset-x-1 rounded-lg bg-warning/25 px-2 py-1 text-[11.5px] font-medium text-warning-fg" style={{ top: y(s), height: Math.max(18, (en - s) * PX) }}>
+          <div key={e.id} className="pointer-events-none absolute inset-x-1 rounded-lg border border-st-block/50 bg-st-block/18 px-2 py-1 text-[11.5px] font-semibold text-st-block" style={{ top: y(s), height: Math.max(18, (en - s) * PX) }}>
             {t(`schedule.type_${e.type}`)}{e.note ? ` · ${e.note}` : ''}
           </div>
         );
@@ -190,15 +204,19 @@ function DayColumn({
         const h = Math.max(22, (en - s) * PX - 2);
         return (
           <React.Fragment key={a.id}>
-            {buf > en && <div className="pointer-events-none absolute inset-x-1 rounded-b-lg bg-surface-3/70" style={{ top: y(en), height: (buf - en) * PX }} />}
+            {buf > en && <div className="bf-hatch pointer-events-none absolute inset-x-1 rounded-b-lg border border-t-0 border-border" style={{ top: y(en), height: (buf - en) * PX }} />}
             <button
               type="button"
               onClick={() => onOpen(a.id)}
               data-testid="calendar-appointment"
-              className={cn('absolute inset-x-1 overflow-hidden rounded-lg border border-l-[3px] border-border px-2 py-1 text-left transition-transform hover:z-10 hover:scale-[1.01]', tone[a.status])}
+              aria-label={`${f.time(a.startsAt)} ${a.customer?.name ?? ''} · ${t(`status.${a.status}`)}`}
+              className={cn('absolute inset-x-1 overflow-hidden rounded-lg border border-l-4 border-border px-2 py-1 text-left shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform hover:z-10 hover:scale-[1.015]', tone[a.status])}
               style={{ top: y(s) + 1, height: h }}
             >
-              <p className="truncate text-[12px] font-semibold tabular-nums">{f.time(a.startsAt)} {a.customer?.name}</p>
+              <p className="flex items-center gap-1 truncate text-[12.5px] font-bold tabular-nums">
+                {(() => { const Icon = statusIcon[a.status]; return Icon ? <Icon className="size-3.5 shrink-0" /> : null; })()}
+                <span className="truncate">{f.time(a.startsAt)} {a.customer?.name}</span>
+              </p>
               {h > 36 && <p className="truncate text-[11.5px] text-fg-muted">{a.serviceName}</p>}
             </button>
           </React.Fragment>

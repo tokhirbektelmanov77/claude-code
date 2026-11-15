@@ -8,13 +8,13 @@ MVP SaaS-платформы онлайн-записи к барберам и в 
 > **Не готов к production** без пунктов из [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#что-нужно-для-production).
 
 Документация: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DATABASE](docs/DATABASE.md) · [API](docs/API.md) ·
-[DEPLOYMENT](docs/DEPLOYMENT.md) · [SECURITY](docs/SECURITY.md) · [ROADMAP](docs/ROADMAP.md)
+[DEPLOYMENT](docs/DEPLOYMENT.md) · [SECURITY](docs/SECURITY.md) · [ROADMAP](docs/ROADMAP.md) · [DESIGN](docs/DESIGN.md)
 
 ## Что внутри
 
 | Часть | Технологии | Путь |
 | --- | --- | --- |
-| Web: клиент, кабинеты, админка, Telegram Mini App | Next.js 16, React 19, Tailwind CSS 4, компоненты в стиле shadcn/ui (Radix), Lucide, TanStack Query | `apps/web` |
+| Web: клиент, кабинеты, админка, Telegram Mini App | Next.js 16, React 19, Tailwind CSS 4, компоненты в стиле shadcn/ui (Radix), Lucide, TanStack Query; дизайн-система «Espresso / Leather» | `apps/web` |
 | REST API + Swagger | NestJS 11, Zod (nestjs-zod), Prisma 6 | `apps/api` |
 | Фоновый worker (уведомления, Telegram-бот, жизненный цикл подписок) | Node.js, очередь на PostgreSQL | `apps/worker` |
 | Схема БД, миграции, seed | Prisma + raw SQL (exclusion constraint) | `packages/db` |

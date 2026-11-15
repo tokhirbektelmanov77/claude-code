@@ -44,7 +44,7 @@ export default function PlatformAdminPage() {
     <>
       <SiteHeader />
       <main className="bf-enter mx-auto max-w-6xl px-4 pb-16 pt-6">
-        <h1 className="text-[26px] font-semibold tracking-tight" data-testid="admin-title">{t('admin.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]" data-testid="admin-title">{t('admin.title')}</h1>
         <OverviewCards />
         <div className="no-scrollbar -mx-4 mt-6 overflow-x-auto px-4">
           <Segmented value={tab} onChange={setTab} options={(['businesses', 'plans', 'payments', 'errors', 'audit'] as const).map((v) => ({ value: v, label: t(`admin.${v}`) }))} />

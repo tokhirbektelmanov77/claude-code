@@ -6,7 +6,7 @@ export function Card({ className, interactive, ...props }: React.HTMLAttributes<
     <div
       className={cn(
         'rounded-2xl border border-border bg-surface',
-        interactive && 'transition-[border-color,box-shadow,transform] duration-150 hover:border-border-strong hover:shadow-[0_2px_12px_-4px_rgb(0_0_0/0.08)] active:scale-[0.995]',
+        interactive && 'transition-[border-color,background-color,transform] duration-150 hover:border-border-strong active:scale-[0.995]',
         className,
       )}
       {...props}

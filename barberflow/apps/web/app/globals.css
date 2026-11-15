@@ -2,81 +2,78 @@
 @source "../../../packages/ui/src";
 
 /*
- * BARBERFLOW design tokens.
- * Ink-on-paper neutrals (warm stone), one copper accent used sparingly for brand moments and
- * "available" affordances. Primary actions are ink (near-black / near-white in dark mode).
+ * BARBERFLOW design system — "Espresso / Leather".
+ * Dark espresso is the brand default for every surface (client booking, cabinets, admin).
+ * Palette: #1A120E background · #3A2418 surfaces/cards · #6B4A2E secondary/selected ·
+ * #A88462 accent · #D5C4AE light buttons · #4A4A46 neutral · #F4EBDF text.
+ * Derived tones were picked for WCAG AA contrast (see docs/DESIGN.md). No gradients-as-decoration,
+ * no neon: status colours are warm and always paired with a text label.
  */
-:root {
-  --bg: oklch(0.985 0.002 75);
-  --surface: oklch(1 0 0);
-  --surface-2: oklch(0.965 0.003 75);
-  --surface-3: oklch(0.925 0.004 75);
-  --border: oklch(0.912 0.004 75);
-  --border-strong: oklch(0.84 0.006 75);
-  --fg: oklch(0.2 0.006 60);
-  --fg-muted: oklch(0.47 0.008 60);
-  --fg-subtle: oklch(0.6 0.008 60);
-  --primary: oklch(0.21 0.006 60);
-  --primary-fg: oklch(0.985 0.002 75);
-  --accent: oklch(0.58 0.14 45);
-  --accent-fg: oklch(0.99 0 0);
-  --ring: oklch(0.58 0.14 45);
-  --success: oklch(0.55 0.13 155);
-  --warning: oklch(0.78 0.15 80);
-  --warning-fg: oklch(0.5 0.11 65);
-  --danger: oklch(0.56 0.2 27);
-  --info: oklch(0.55 0.13 250);
-  --hatch: oklch(0.94 0.003 75);
-  color-scheme: light;
+:root,
+:root[data-theme='dark'] {
+  --bg: #1a120e;
+  --surface: #3a2418;
+  --surface-2: #2a1b13;
+  --surface-3: #4d3222;
+  --selected: #6b4a2e;
+  --border: #4a3122;
+  --border-strong: #6b4a2e;
+  --fg: #f4ebdf;
+  --fg-muted: #bfae97;
+  --fg-subtle: #a6927d;
+  --primary: #d5c4ae;
+  --primary-fg: #1a120e;
+  --accent: #a88462;
+  --accent-fg: #1a120e;
+  --ring: #a88462;
+  --neutral: #4a4a46;
+  --success: #a7bd8e;
+  --warning: #e0b26a;
+  --warning-fg: #e0b26a;
+  --danger: #e08a72;
+  --info: #9db4cf;
+  --hatch: #33231a;
+  --overlay: rgb(10 6 4 / 0.72);
+  /* Calendar statuses: background tint + solid bar + label (never colour alone). */
+  --st-confirmed: #d5c4ae;
+  --st-completed: #a7bd8e;
+  --st-noshow: #e08a72;
+  --st-cancelled: #8e8d88;
+  --st-block: #e0b26a;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: oklch(0.15 0.004 60);
-    --surface: oklch(0.19 0.004 60);
-    --surface-2: oklch(0.235 0.005 60);
-    --surface-3: oklch(0.29 0.006 60);
-    --border: oklch(0.28 0.005 60);
-    --border-strong: oklch(0.36 0.006 60);
-    --fg: oklch(0.96 0.003 75);
-    --fg-muted: oklch(0.74 0.006 75);
-    --fg-subtle: oklch(0.6 0.006 75);
-    --primary: oklch(0.96 0.003 75);
-    --primary-fg: oklch(0.18 0.004 60);
-    --accent: oklch(0.7 0.14 50);
-    --accent-fg: oklch(0.17 0.01 50);
-    --ring: oklch(0.7 0.14 50);
-    --success: oklch(0.7 0.14 155);
-    --warning: oklch(0.8 0.14 80);
-    --warning-fg: oklch(0.82 0.12 80);
-    --danger: oklch(0.68 0.19 25);
-    --info: oklch(0.7 0.12 250);
-    --hatch: oklch(0.21 0.004 60);
-    color-scheme: dark;
-  }
-}
-:root[data-theme='dark'] {
-  --bg: oklch(0.15 0.004 60);
-  --surface: oklch(0.19 0.004 60);
-  --surface-2: oklch(0.235 0.005 60);
-  --surface-3: oklch(0.29 0.006 60);
-  --border: oklch(0.28 0.005 60);
-  --border-strong: oklch(0.36 0.006 60);
-  --fg: oklch(0.96 0.003 75);
-  --fg-muted: oklch(0.74 0.006 75);
-  --fg-subtle: oklch(0.6 0.006 75);
-  --primary: oklch(0.96 0.003 75);
-  --primary-fg: oklch(0.18 0.004 60);
-  --accent: oklch(0.7 0.14 50);
-  --accent-fg: oklch(0.17 0.01 50);
-  --ring: oklch(0.7 0.14 50);
-  --success: oklch(0.7 0.14 155);
-  --warning: oklch(0.8 0.14 80);
-  --warning-fg: oklch(0.82 0.12 80);
-  --danger: oklch(0.68 0.19 25);
-  --info: oklch(0.7 0.12 250);
-  --hatch: oklch(0.21 0.004 60);
-  color-scheme: dark;
+/* Optional warm light variant ("Leather Day") for staff in bright rooms. Same hues, inverted. */
+:root[data-theme='light'] {
+  --bg: #f4ebdf;
+  --surface: #fbf6ef;
+  --surface-2: #ece1d2;
+  --surface-3: #e0d1bd;
+  --selected: #d5c4ae;
+  --border: #dbc9b3;
+  --border-strong: #b89d80;
+  --fg: #1a120e;
+  --fg-muted: #5c4636;
+  --fg-subtle: #75604f;
+  --primary: #3a2418;
+  --primary-fg: #f4ebdf;
+  --accent: #6b4a2e;
+  --accent-fg: #f4ebdf;
+  --ring: #6b4a2e;
+  --neutral: #4a4a46;
+  --success: #4d6a37;
+  --warning: #a8701a;
+  --warning-fg: #835610;
+  --danger: #a5412c;
+  --info: #3d5e85;
+  --hatch: #e6d9c7;
+  --overlay: rgb(26 18 14 / 0.45);
+  --st-confirmed: #6b4a2e;
+  --st-completed: #4d6a37;
+  --st-noshow: #a5412c;
+  --st-cancelled: #75736d;
+  --st-block: #a8701a;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -99,7 +96,14 @@
   --color-warning-fg: var(--warning-fg);
   --color-danger: var(--danger);
   --color-info: var(--info);
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --color-selected: var(--selected);
+  --color-neutral: var(--neutral);
+  --color-st-confirmed: var(--st-confirmed);
+  --color-st-completed: var(--st-completed);
+  --color-st-noshow: var(--st-noshow);
+  --color-st-cancelled: var(--st-cancelled);
+  --color-st-block: var(--st-block);
+  --font-sans: var(--font-manrope), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
 }
 
 @layer base {
@@ -114,7 +118,7 @@
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-feature-settings: 'cv11', 'ss01';
+    font-feature-settings: 'tnum' 0;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -149,6 +153,13 @@
 }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+
+/* Expressive display type for hero moments (the mockup's "Твой барбер. Твоё время."). */
+.bf-display { font-weight: 800; letter-spacing: -0.035em; line-height: 1.02; }
+.bf-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-subtle); }
+
+/* Photo heroes: a functional scrim (not decoration) keeps text readable over any photo. */
+.bf-scrim { background: linear-gradient(180deg, rgb(26 18 14 / 0.15) 0%, rgb(26 18 14 / 0.55) 55%, var(--bg) 100%); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }

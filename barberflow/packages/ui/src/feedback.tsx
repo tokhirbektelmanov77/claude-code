@@ -4,7 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from './cn';
 
 export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('animate-pulse rounded-xl bg-surface-3/70', className)} {...props} />;
+  return <div className={cn('animate-pulse rounded-xl bg-surface-3/60', className)} {...props} />;
 }
 
 export function Spinner({ className }: { className?: string }) {
@@ -14,12 +14,12 @@ export function Spinner({ className }: { className?: string }) {
 const badgeVariants = cva('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-medium whitespace-nowrap', {
   variants: {
     tone: {
-      neutral: 'bg-surface-2 text-fg-muted',
-      success: 'bg-success/12 text-success',
+      neutral: 'bg-neutral/45 text-fg-muted',
+      success: 'bg-success/15 text-success',
       warning: 'bg-warning/15 text-warning-fg',
-      danger: 'bg-danger/10 text-danger',
-      accent: 'bg-accent/12 text-accent',
-      info: 'bg-info/10 text-info',
+      danger: 'bg-danger/15 text-danger',
+      accent: 'bg-accent/18 text-accent',
+      info: 'bg-primary/15 text-primary',
     },
   },
   defaultVariants: { tone: 'neutral' },
@@ -36,7 +36,7 @@ export function Alert({
 }: { tone?: keyof typeof alertIcons; title?: React.ReactNode; children?: React.ReactNode; className?: string; action?: React.ReactNode }) {
   const Icon = alertIcons[tone];
   const tones = {
-    info: 'border-info/20 bg-info/6 [&_svg]:text-info',
+    info: 'border-primary/20 bg-primary/8 [&_svg]:text-primary',
     success: 'border-success/25 bg-success/8 [&_svg]:text-success',
     warning: 'border-warning/30 bg-warning/10 [&_svg]:text-warning-fg',
     danger: 'border-danger/25 bg-danger/6 [&_svg]:text-danger',
@@ -59,11 +59,11 @@ export function EmptyState({
   return (
     <div className={cn('flex flex-col items-center justify-center px-6 py-12 text-center', className)}>
       {Icon && (
-        <div className="mb-4 grid size-12 place-items-center rounded-2xl bg-surface-2 text-fg-subtle">
+        <div className="mb-4 grid size-12 place-items-center rounded-2xl border border-border bg-surface-2 text-fg-subtle">
           <Icon className="size-6" />
         </div>
       )}
-      <p className="text-[15px] font-medium text-fg">{title}</p>
+      <p className="text-[16px] font-semibold text-fg">{title}</p>
       {text && <p className="mt-1 max-w-sm text-[14px] text-fg-muted">{text}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>

@@ -73,7 +73,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[248px_1fr]">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-dvh flex-col border-r border-border bg-surface px-3 py-4 lg:flex">
+      <aside className="sticky top-0 hidden h-dvh flex-col border-r border-border bg-surface-2 px-3 py-5 lg:flex">
         <Link href="/" className="mb-5 px-2"><Logo /></Link>
         <div className="mb-4 px-1">
           {switcher || <p className="truncate px-1 text-[14px] font-semibold">{ws.business?.name ?? '…'}</p>}
@@ -81,7 +81,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
           {items.map(({ href, key, icon: Icon }) => (
-            <Link key={href} href={href} className={cn('flex items-center gap-3 rounded-xl px-3 py-2 text-[14.5px] transition-colors', isActive(href) ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted hover:bg-surface-2/60 hover:text-fg')}>
+            <Link key={href} href={href} className={cn('flex items-center gap-3 rounded-xl px-3 py-2 text-[14.5px] transition-colors', isActive(href) ? 'bg-selected font-semibold text-fg shadow-[inset_3px_0_0_var(--accent)]' : 'text-fg-muted hover:bg-surface-3/50 hover:text-fg')}>
               <Icon className="size-[18px]" />{t(key)}
             </Link>
           ))}
@@ -107,10 +107,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         </main>
 
         {/* Mobile tab bar */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden" aria-label={t('nav.menu')}>
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface-2/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden" aria-label={t('nav.menu')}>
           <div className="mx-auto grid max-w-md grid-cols-5">
             {tabItems.map(({ href, key, icon: Icon }) => (
-              <Link key={href} href={href} className={cn('flex flex-col items-center gap-1 py-2 text-[11px] font-medium', isActive(href) ? 'text-fg' : 'text-fg-subtle')}>
+              <Link key={href} href={href} className={cn('flex flex-col items-center gap-1 py-2 text-[11px] font-medium', isActive(href) ? 'text-primary' : 'text-fg-subtle')}>
                 <Icon className="size-[22px]" /><span className="max-w-full truncate px-1">{t(key)}</span>
               </Link>
             ))}
@@ -124,7 +124,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {switcher}
             <div className="grid grid-cols-3 gap-2">
               {items.filter((i) => !primary.includes(i.href)).map(({ href, key, icon: Icon }) => (
-                <Link key={href} href={href} onClick={() => setMore(false)} className="flex flex-col items-center gap-2 rounded-2xl bg-surface-2 px-2 py-4 text-center text-[13px] font-medium">
+                <Link key={href} href={href} onClick={() => setMore(false)} className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-surface-2 px-2 py-4 text-center text-[13px] font-semibold">
                   <Icon className="size-5" />{t(key)}
                 </Link>
               ))}

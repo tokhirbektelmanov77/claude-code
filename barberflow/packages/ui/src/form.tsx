@@ -2,7 +2,7 @@ import * as React from 'react';
 import { cn } from './cn';
 
 const fieldBase =
-  'w-full rounded-xl border border-border bg-surface px-3.5 text-[16px] sm:text-[15px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] duration-150 focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/20 disabled:opacity-50 aria-[invalid=true]:border-danger aria-[invalid=true]:ring-danger/15';
+  'w-full rounded-xl border border-border bg-surface-2 px-3.5 text-[16px] sm:text-[15px] text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow] duration-150 focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/20 disabled:opacity-50 aria-[invalid=true]:border-danger aria-[invalid=true]:ring-danger/15';
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(({ className, ...props }, ref) => (
   <input ref={ref} className={cn(fieldBase, 'h-11', className)} {...props} />
@@ -18,7 +18,7 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
   <select
     ref={ref}
     className={cn(fieldBase, 'h-11 appearance-none bg-[length:16px] bg-[right_12px_center] bg-no-repeat pr-9', className)}
-    style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")" }}
+    style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23A6927D' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")" }}
     {...props}
   >
     {children}
@@ -50,7 +50,7 @@ export function Field({
 export function Checkbox({ className, label, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: React.ReactNode }) {
   return (
     <label className={cn('flex cursor-pointer items-start gap-3 text-[14px] leading-snug text-fg-muted', className)}>
-      <input type="checkbox" className="mt-0.5 size-[18px] shrink-0 cursor-pointer rounded-[5px] accent-[var(--color-primary)]" {...props} />
+      <input type="checkbox" className="mt-0.5 size-[18px] shrink-0 cursor-pointer rounded-[5px] accent-[var(--color-accent)]" {...props} />
       <span>{label}</span>
     </label>
   );

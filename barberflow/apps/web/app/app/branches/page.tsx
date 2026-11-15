@@ -35,7 +35,7 @@ export default function BranchesPage() {
   return (
     <div className="bf-enter flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('branches.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('branches.title')}</h1>
         <Button onClick={() => setEdit('new')}><Plus />{t('branches.add')}</Button>
       </div>
       {q.isLoading ? <Skeleton className="h-40" /> : !q.data?.length ? <Card><EmptyState icon={Building2} title={t('branches.empty')} /></Card> : (

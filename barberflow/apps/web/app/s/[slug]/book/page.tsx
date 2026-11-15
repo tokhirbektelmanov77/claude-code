@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronRight, Clock, Info } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Clock, Info, Scissors } from 'lucide-react';
 import { Alert, Avatar, Button, Card, Checkbox, Field, Input, Skeleton, Textarea, cn } from '@barberflow/ui';
 import type { AppointmentDto, PublicBarber, PublicBusiness, SlotDto } from '@barberflow/shared';
 import { SiteHeader } from '@/components/site-header';
@@ -57,7 +57,7 @@ function BookingFlow() {
 
   const step: Step = !barber ? 'barber' : !service ? 'service' : !s.time ? 'time' : 'confirm';
   const stepIndex = STEPS.indexOf(step);
-  const stepTitle = { barber: t('booking.chooseBarber'), service: t('booking.chooseService'), time: t('booking.chooseDate'), confirm: t('booking.summary') }[step];
+  const stepTitle = { barber: t('booking.chooseBarber'), service: t('booking.chooseService'), time: t('booking.chooseDateTime'), confirm: t('booking.summary') }[step];
 
   const goBack = () => {
     if (step === 'confirm') set({ time: null });
@@ -72,13 +72,13 @@ function BookingFlow() {
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={goBack} aria-label={t('common.back')} className="-ml-2.5"><ArrowLeft className="!size-5" /></Button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[12.5px] text-fg-subtle">{b?.name ?? '…'} · {t('booking.stepOf', { n: stepIndex + 1, total: STEPS.length })}</p>
-            <h1 className="truncate text-[19px] font-semibold tracking-tight" data-testid="step-title">{stepTitle}</h1>
+            <p className="truncate text-[12px] font-semibold uppercase tracking-[0.1em] text-fg-subtle">{b?.name ?? '…'} · {t('booking.stepOf', { n: stepIndex + 1, total: STEPS.length })}</p>
+            <h1 className="truncate text-[22px] font-extrabold tracking-[-0.03em]" data-testid="step-title">{stepTitle}</h1>
           </div>
         </div>
         <div className="mt-3 flex gap-1.5" aria-hidden>
           {STEPS.map((x, i) => (
-            <div key={x} className={cn('h-1 flex-1 rounded-full transition-colors duration-300', i <= stepIndex ? 'bg-primary' : 'bg-surface-3')} />
+            <div key={x} className={cn('h-1 flex-1 rounded-full transition-colors duration-300', i <= stepIndex ? 'bg-primary' : 'bg-surface-3/70')} />
           ))}
         </div>
       </div>
@@ -113,7 +113,7 @@ function BarberStep({ b, onPick }: { b: PublicBusiness; onPick: (id: string) => 
           <div className="flex items-center gap-3.5">
             <Avatar name={barber.name} src={barber.photoUrl} size={56} />
             <div className="min-w-0 flex-1">
-              <p className="text-[16px] font-semibold">{barber.name}</p>
+              <p className="text-[17px] font-bold">{barber.name}</p>
               {barber.specialization && <p className="text-[13.5px] text-fg-muted">{barber.specialization}</p>}
             </div>
             <Button size="sm" onClick={() => onPick(barber.id)} data-testid={`choose-barber-${barber.slug}`}>{t('booking.select')}</Button>
@@ -121,7 +121,7 @@ function BarberStep({ b, onPick }: { b: PublicBusiness; onPick: (id: string) => 
           {barber.serviceIds.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {b.services.filter((s) => barber.serviceIds.includes(s.id)).map((s) => (
-                <span key={s.id} className="rounded-full bg-surface-2 px-2.5 py-1 text-[12.5px] text-fg-muted">{serviceName(s, locale)}</span>
+                <span key={s.id} className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[12.5px] text-fg-muted">{serviceName(s, locale)}</span>
               ))}
             </div>
           )}
@@ -137,7 +137,7 @@ function ServiceStep({ b, barber, onPick }: { b: PublicBusiness; barber: PublicB
   const list = b.services.filter((s) => barber.serviceIds.includes(s.id));
   return (
     <>
-      <div className="mb-4 flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
+      <div className="mb-4 flex items-center gap-3 rounded-2xl border border-border bg-surface-2 p-3">
         <Avatar name={barber.name} src={barber.photoUrl} size={36} />
         <p className="text-[14.5px]"><span className="text-fg-muted">{t('booking.barber')}:</span> <span className="font-medium">{barber.name}</span></p>
       </div>
@@ -149,13 +149,14 @@ function ServiceStep({ b, barber, onPick }: { b: PublicBusiness; barber: PublicB
             const p = barber.prices[s.id] ?? { priceUzs: s.priceUzs, durationMin: s.durationMin };
             return (
               <button key={s.id} type="button" onClick={() => onPick(s.id)} data-testid={`service-${s.id}`} className="group text-left">
-                <Card interactive className="flex items-center gap-3 p-4">
+                <Card interactive className="flex items-center gap-3.5 p-4 group-focus-visible:border-accent">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-primary"><Scissors className="size-5" /></span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[15.5px] font-medium">{serviceName(s, locale)}</p>
+                    <p className="text-[15.5px] font-bold">{serviceName(s, locale)}</p>
                     {s.description && <p className="mt-0.5 text-[13px] text-fg-muted">{s.description}</p>}
                     <p className="mt-1 inline-flex items-center gap-1 text-[13px] text-fg-muted"><Clock className="size-3.5" />{f.duration(p.durationMin)}</p>
                   </div>
-                  <p className="text-[15.5px] font-semibold tabular-nums">{f.money(p.priceUzs)}</p>
+                  <p className="text-[15.5px] font-bold tabular-nums">{f.money(p.priceUzs)}</p>
                   <ChevronRight className="size-5 text-fg-subtle transition-transform group-hover:translate-x-0.5" />
                 </Card>
               </button>
@@ -181,6 +182,8 @@ function TimeStep({
   React.useEffect(() => {
     if (selected && selected !== date) onDate(selected);
   }, [selected, date, onDate]);
+  const [picked, setPicked] = React.useState<string | null>(null);
+  React.useEffect(() => setPicked(null), [selected]);
   const slots = useQuery({
     queryKey: ['slots', barberId, serviceId, selected],
     queryFn: () => api<{ slots: SlotDto[] }>(`/public/barbers/${barberId}/slots?serviceId=${serviceId}&date=${selected}`),
@@ -197,15 +200,20 @@ function TimeStep({
     <div className="flex flex-col gap-5">
       <DateCalendar available={dates.data.dates} value={selected} onChange={onDate} timezone={b.timezone} horizonDays={b.bookingHorizonDays} />
       <section>
-        <h2 className="mb-3 text-[15px] font-semibold tracking-tight">
-          {t('booking.chooseTime')}{selected && <span className="font-normal text-fg-muted"> · {f.dateWeekday(selected)}</span>}
+        <h2 className="mb-3 text-[16px] font-bold tracking-tight">
+          {t('booking.availableTime')}{selected && <span className="font-medium text-fg-muted"> · {f.dateWeekday(selected)}</span>}
         </h2>
         {slots.isError ? (
           <ErrorState error={slots.error} onRetry={() => slots.refetch()} />
         ) : (
-          <SlotGrid slots={slots.data?.slots} loading={slots.isLoading} value={null} onChange={onTime} timezone={b.timezone} />
+          <SlotGrid slots={slots.data?.slots} loading={slots.isLoading} value={picked} onChange={setPicked} timezone={b.timezone} />
         )}
       </section>
+      <div className="sticky bottom-0 z-10 -mx-4 mt-2 border-t border-border bg-bg/92 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
+        <Button size="lg" block disabled={!picked} onClick={() => picked && onTime(picked)} data-testid="time-continue">
+          {picked ? `${t('common.continue')} · ${f.time(picked)}` : t('common.continue')}<ArrowRight />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -268,7 +276,7 @@ function ConfirmStep({
         <div className="flex items-center gap-3 border-b border-border p-4">
           <Avatar name={barber.name} src={barber.photoUrl} size={44} />
           <div>
-            <p className="font-semibold">{b.name}</p>
+            <p className="font-bold">{b.name}</p>
             <p className="text-[13px] text-fg-muted">{f.dateWeekday(start)}</p>
           </div>
         </div>
@@ -279,14 +287,14 @@ function ConfirmStep({
               <dd className="text-right font-medium">{v}</dd>
             </div>
           ))}
-          <div className="flex justify-between gap-4 bg-surface-2/60 px-4 py-3.5">
-            <dt className="font-medium">{t('booking.cost')}</dt>
-            <dd className="text-[17px] font-semibold tabular-nums" data-testid="summary-price">{f.money(p.priceUzs)}</dd>
+          <div className="flex justify-between gap-4 bg-selected/40 px-4 py-4">
+            <dt className="font-semibold">{t('booking.cost')}</dt>
+            <dd className="text-[19px] font-extrabold tabular-nums" data-testid="summary-price">{f.money(p.priceUzs)}</dd>
           </div>
         </dl>
       </Card>
 
-      <div className="flex gap-2.5 rounded-2xl border border-border p-3.5 text-[13.5px] text-fg-muted">
+      <div className="flex gap-2.5 rounded-2xl border border-border bg-surface-2 p-3.5 text-[13.5px] text-fg-muted">
         <Info className="mt-0.5 size-4 shrink-0" />
         <div>
           <p className="font-medium text-fg">{t('booking.cancellationTitle')}</p>

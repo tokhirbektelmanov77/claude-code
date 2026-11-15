@@ -3,7 +3,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, CalendarDays, MapPin, RotateCcw, XCircle } from 'lucide-react';
+import { CalendarClock, CalendarDays, CalendarPlus, Clock, ListChecks, MapPin, RotateCcw, Scissors, XCircle } from 'lucide-react';
 import { Alert, Avatar, Button, Card, Skeleton } from '@barberflow/ui';
 import type { AppointmentDto } from '@barberflow/shared';
 import { SiteHeader } from '@/components/site-header';
@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useMe } from '@/lib/auth';
 import { localDateOf, mapUrl, useFormat } from '@/lib/format';
+import { buildIcs, downloadIcs } from '@/lib/ics';
 
 function Detail() {
   const { id } = useParams<{ id: string }>();
@@ -51,15 +52,15 @@ function Detail() {
     <div className="bf-enter pt-6">
       {showSuccess ? (
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="bf-scale-in grid size-16 place-items-center rounded-full bg-success text-white shadow-[0_8px_24px_-8px_var(--success)]">
+          <div className="bf-scale-in grid size-[72px] place-items-center rounded-full bg-primary text-primary-fg">
             <svg viewBox="0 0 24 24" className="bf-check size-8" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
           </div>
-          <h1 className="mt-4 text-[24px] font-semibold tracking-tight" data-testid="success-title">{t('booking.successTitle')}</h1>
-          <p className="mt-1 text-[14.5px] text-fg-muted">{me.data?.telegramLinked ? t('booking.successText') : t('booking.notifyNoChannel')}</p>
+          <h1 className="bf-display mt-5 max-w-xs text-[32px]" data-testid="success-title">{t('booking.successTitle')}</h1>
+          <p className="mt-3 max-w-sm text-[14.5px] text-fg-muted">{me.data?.telegramLinked ? t('booking.successText') : t('booking.notifyNoChannel')}</p>
         </div>
       ) : (
         <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-[22px] font-semibold tracking-tight">{t('appointment.title')}</h1>
+          <h1 className="text-[26px] font-extrabold tracking-[-0.03em]">{t('appointment.title')}</h1>
           <StatusBadge status={a.status} />
         </div>
       )}
@@ -73,15 +74,15 @@ function Detail() {
             <p className="truncate text-[13.5px] text-fg-muted">{a.business.name}</p>
           </div>
         </div>
-        <div className="flex flex-col gap-3 p-4 text-[15px]">
-          <p className="flex items-center gap-2.5"><CalendarDays className="size-4 text-fg-subtle" /><span data-testid="detail-date">{f.date(localDateOf(a.startsAt, a.business.timezone))}</span></p>
-          <p className="flex items-center gap-2.5"><CalendarClock className="size-4 text-fg-subtle" /><span className="tabular-nums" data-testid="detail-time">{f.timeRange(a.startsAt, a.endsAt)}</span></p>
-          <p className="flex items-center gap-2.5"><span className="grid size-4 place-items-center text-fg-subtle">✂︎</span>{a.serviceName}</p>
-          {(a.business.address || a.business.city) && <p className="flex items-start gap-2.5 text-fg-muted"><MapPin className="mt-0.5 size-4 text-fg-subtle" />{[a.business.city, a.business.address].filter(Boolean).join(', ')}</p>}
+        <div className="flex flex-col divide-y divide-border px-4 text-[15.5px]">
+          <p className="flex items-center gap-3 py-3"><CalendarDays className="size-[18px] text-accent" /><span className="font-semibold" data-testid="detail-date">{f.date(localDateOf(a.startsAt, a.business.timezone))}</span></p>
+          <p className="flex items-center gap-3 py-3"><Clock className="size-[18px] text-accent" /><span className="font-semibold tabular-nums" data-testid="detail-time">{f.timeRange(a.startsAt, a.endsAt)}</span></p>
+          <p className="flex items-center gap-3 py-3"><Scissors className="size-[18px] text-accent" />{a.serviceName}</p>
+          {(a.business.address || a.business.city) && <p className="flex items-start gap-3 py-3 text-fg-muted"><MapPin className="mt-0.5 size-[18px] text-accent" />{[a.business.city, a.business.address].filter(Boolean).join(', ')}</p>}
         </div>
-        <div className="flex items-center justify-between border-t border-border bg-surface-2/60 px-4 py-3.5">
-          <span className="font-medium">{t('booking.cost')}</span>
-          <span className="text-[17px] font-semibold tabular-nums" data-testid="detail-price">{f.money(a.priceUzs)}</span>
+        <div className="flex items-center justify-between border-t border-border bg-selected/40 px-4 py-4">
+          <span className="font-semibold">{t('booking.cost')}</span>
+          <span className="text-[19px] font-extrabold tabular-nums" data-testid="detail-price">{f.money(a.priceUzs)}</span>
         </div>
       </Card>
 
@@ -94,6 +95,19 @@ function Detail() {
             <Button variant="outline" className="text-danger" onClick={() => setCancel(true)} data-testid="cancel"><XCircle />{t('booking.cancelBooking')}</Button>
           </>
         )}
+        {active && (
+          <Button
+            variant="outline"
+            className="col-span-2"
+            data-testid="add-to-calendar"
+            onClick={() => downloadIcs(`barberflow-${a.id.slice(0, 8)}.ics`, buildIcs({
+              uid: a.id, start: a.startsAt, end: a.endsAt, title: `${a.serviceName} · ${a.business!.name}`,
+              location: [a.business!.city, a.business!.address].filter(Boolean).join(', '), description: a.barber?.name,
+            }))}
+          >
+            <CalendarPlus />{t('booking.addToCalendar')}
+          </Button>
+        )}
         <Button asChild variant="outline" className="col-span-2">
           <a href={mapUrl({ ...a.business })} target="_blank" rel="noreferrer"><MapPin />{t('booking.openMap')}</a>
         </Button>
@@ -101,7 +115,7 @@ function Detail() {
           <Link href={`/s/${a.business.slug}/book?barber=${a.barberId}&service=${a.serviceId}`}><RotateCcw />{t('booking.repeat')}</Link>
         </Button>
         <Button asChild className="col-span-2" size="lg">
-          <Link href="/me">{t('nav.myBookings')}</Link>
+          <Link href="/me"><ListChecks />{t('nav.myBookings')}</Link>
         </Button>
       </div>
 

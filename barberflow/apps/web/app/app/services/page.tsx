@@ -18,7 +18,7 @@ export default function ServicesPage() {
   return (
     <div className="bf-enter flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('services.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('services.title')}</h1>
         <Button onClick={() => setEdit('new')} data-testid="add-service"><Plus />{t('services.add')}</Button>
       </div>
       {services.isLoading ? <Skeleton className="h-60" /> : !services.data?.length ? <Card><EmptyState icon={Scissors} title={t('services.empty')} /></Card> : (

@@ -11,9 +11,10 @@ import { errorKey } from '@/lib/errors';
 
 interface TgWebApp {
   initData: string;
-  colorScheme?: 'light' | 'dark';
   ready: () => void;
   expand: () => void;
+  setHeaderColor?: (c: string) => void;
+  setBackgroundColor?: (c: string) => void;
 }
 declare global { interface Window { Telegram?: { WebApp?: TgWebApp } } }
 
@@ -36,7 +37,8 @@ export default function TelegramEntry() {
     if (!app || !app.initData) { setState('outside'); return; }
     app.ready();
     app.expand();
-    if (app.colorScheme) document.documentElement.dataset.theme = app.colorScheme;
+    // Keep the brand's Espresso theme inside Telegram and match its chrome to it.
+    try { app.setHeaderColor?.('#1A120E'); app.setBackgroundColor?.('#1A120E'); } catch { /* older clients */ }
     try {
       const r = await api<{ me: MeDto; startParam: string | null }>('/auth/telegram', { body: { initData: app.initData } });
       qc.setQueryData(['me'], r.me);

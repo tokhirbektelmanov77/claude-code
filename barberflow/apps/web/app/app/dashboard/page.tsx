@@ -21,7 +21,7 @@ export default function DashboardPage() {
   const q = useQuery({ queryKey: ['dashboard', ws.businessId], queryFn: () => api<Dashboard>(`/businesses/${ws.businessId}/dashboard`), refetchInterval: 60_000 });
   return (
     <div className="bf-enter flex flex-col gap-5">
-      <h1 className="text-[26px] font-semibold tracking-tight">{t('dashboard.title')}</h1>
+      <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('dashboard.title')}</h1>
       {q.isLoading ? <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24" />)}</div>
         : q.isError ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data && (
           <>
@@ -35,7 +35,7 @@ export default function DashboardPage() {
             </div>
             <Card className="p-4">
               <p className="text-[13px] text-fg-muted">{t('dashboard.priceValue')}</p>
-              <p className="mt-1.5 text-[26px] font-semibold tracking-tight tabular-nums">{f.money(q.data.completedPriceValueUzs)}</p>
+              <p className="mt-1.5 text-[28px] font-extrabold tracking-[-0.03em] tabular-nums">{f.money(q.data.completedPriceValueUzs)}</p>
               <p className="mt-2 flex items-start gap-1.5 text-[12.5px] text-fg-subtle"><Info className="mt-px size-3.5 shrink-0" />{t('dashboard.priceValueHint')}</p>
             </Card>
             <section>

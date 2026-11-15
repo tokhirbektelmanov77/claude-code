@@ -48,7 +48,7 @@ export default function SettingsPage() {
   return (
     <div className="bf-enter flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('settings.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('settings.title')}</h1>
         <Button onClick={save} loading={busy}>{t('common.save')}</Button>
       </div>
       {msg && <Alert tone={msg.ok ? 'success' : 'danger'}>{msg.text}</Alert>}

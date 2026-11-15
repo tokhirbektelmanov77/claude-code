@@ -29,7 +29,7 @@ export default function SubscriptionPage() {
   const tone = s?.status === 'ACTIVE' ? 'success' : s?.status === 'TRIALING' ? 'info' : 'warning';
   return (
     <div className="bf-enter flex flex-col gap-5">
-      <h1 className="text-[26px] font-semibold tracking-tight">{t('subscription.title')}</h1>
+      <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('subscription.title')}</h1>
       {s && (
         <Card className="p-5">
           <div className="flex items-center justify-between">

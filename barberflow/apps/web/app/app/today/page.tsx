@@ -9,7 +9,7 @@ import { todayIso, useFormat } from '@/lib/format';
 import { useWorkspace } from '@/lib/workspace';
 import { dayRange, freeGaps } from '@/lib/calendar';
 import { ErrorState, ListSkeleton } from '@/components/states';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, statusBar } from '@/components/status-badge';
 import { AppointmentSheet } from '@/components/cabinet/appointment-sheet';
 import { ManualBookingSheet } from '@/components/cabinet/manual-booking-sheet';
 import type { CalendarFeed } from '@/components/cabinet/types';
@@ -46,7 +46,7 @@ export default function TodayPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[13.5px] text-fg-muted">{f.dateWeekday(date)}</p>
-          <h1 className="text-[26px] font-semibold tracking-tight">{t('cabinet.today')}</h1>
+          <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('cabinet.today')}</h1>
         </div>
         <div className="flex items-center gap-2">
           {ws.isManager && feed.data && feed.data.barbers.length > 1 && (
@@ -76,7 +76,7 @@ export default function TodayPage() {
                   <p className="text-[13.5px] text-fg-muted">{next.serviceName}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[18px] font-semibold tabular-nums">{f.time(next.startsAt)}</p>
+                  <p className="text-[22px] font-extrabold tabular-nums">{f.time(next.startsAt)}</p>
                   <p className="text-[12.5px] text-fg-subtle">
                     {new Date(next.startsAt).getTime() <= now ? t('today.now') : t('today.in', { m: Math.round((new Date(next.startsAt).getTime() - now) / 60000) })}
                   </p>
@@ -90,7 +90,7 @@ export default function TodayPage() {
               <p className="mb-2 text-[13px] font-medium text-fg-muted">{t('today.free')}</p>
               <div className="flex flex-wrap gap-2">
                 {gaps.map((g) => (
-                  <span key={g.start.toISOString()} className="rounded-full border border-dashed border-border-strong px-3 py-1.5 text-[13.5px] tabular-nums text-fg-muted">
+                  <span key={g.start.toISOString()} className="rounded-full border border-dashed border-accent/70 bg-surface-2 px-3 py-1.5 text-[13.5px] font-semibold tabular-nums text-primary">
                     {f.timeRange(g.start, g.end)}
                   </span>
                 ))}
@@ -105,8 +105,8 @@ export default function TodayPage() {
             ) : (
               <Card className="divide-y divide-border overflow-hidden">
                 {appts.map((a) => (
-                  <button key={a.id} type="button" onClick={() => setOpenId(a.id)} className={cn('flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/60', a.status === 'CANCELLED' && 'opacity-55')}>
-                    <span className="w-24 shrink-0 text-[14.5px] font-medium tabular-nums">{f.timeRange(a.startsAt, a.endsAt)}</span>
+                  <button key={a.id} type="button" onClick={() => setOpenId(a.id)} className={cn('flex w-full items-center gap-3 border-l-4 px-4 py-3 text-left transition-colors hover:bg-surface-3/40', statusBar[a.status], a.status === 'CANCELLED' && 'opacity-60')}>
+                    <span className="w-24 shrink-0 text-[14.5px] font-bold tabular-nums">{f.timeRange(a.startsAt, a.endsAt)}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{a.customer?.name}</span>
                       <span className="block truncate text-[13px] text-fg-muted">{a.serviceName} · {f.money(a.priceUzs)}</span>

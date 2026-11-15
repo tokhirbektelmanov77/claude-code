@@ -26,7 +26,7 @@ export default function SchedulePage() {
   return (
     <div className="bf-enter flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('schedule.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('schedule.title')}</h1>
         {options.length > 1 && (
           <Select value={barberId} onChange={(e) => setBarberId(e.target.value)} className="h-10 w-auto" aria-label={t('schedule.barber')}>
             {options.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

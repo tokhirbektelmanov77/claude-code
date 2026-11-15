@@ -9,6 +9,7 @@ test.describe('client booking (mobile)', () => {
     await page.getByText('Мужская стрижка').first().click();
     await page.getByTestId('day-2026-11-17').click();
     await page.getByTestId('slot-16:00').click();
+    await page.getByTestId('time-continue').click();
     await expect(page.getByTestId('summary-when')).toHaveText('17 ноября 2026, 16:00–16:45');
     await expect(page.getByTestId('summary-price')).toHaveText('100 000 сум');
 
@@ -37,6 +38,7 @@ test.describe('client booking (mobile)', () => {
     await page.getByText('Мужская стрижка').first().click();
     await page.getByTestId('day-2026-11-17').click();
     await page.getByTestId('slot-18:00').click();
+    await page.getByTestId('time-continue').click();
     await loginOtp(page, freshPhone());
     await page.getByTestId('customer-name').fill('Опоздавший');
     await page.getByTestId('consent').check();
@@ -65,6 +67,7 @@ test.describe('client booking (mobile)', () => {
     await page.getByText('Оформление бороды').click();
     await page.getByTestId('day-2026-11-17').click();
     await page.getByTestId('slot-17:00').click();
+    await page.getByTestId('time-continue').click();
     await loginOtp(page, freshPhone());
     await page.getByTestId('customer-name').fill('Переносящий');
     await page.getByTestId('consent').check();

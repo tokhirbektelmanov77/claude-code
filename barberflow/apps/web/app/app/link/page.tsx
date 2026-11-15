@@ -21,7 +21,7 @@ export default function LinkPage() {
   return (
     <div className="bf-enter flex flex-col gap-5">
       <div>
-        <h1 className="text-[26px] font-semibold tracking-tight">{t('linkPage.title')}</h1>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('linkPage.title')}</h1>
         <p className="mt-1 text-[14.5px] text-fg-muted">{t('linkPage.text')}</p>
       </div>
       {ws.isManager && (

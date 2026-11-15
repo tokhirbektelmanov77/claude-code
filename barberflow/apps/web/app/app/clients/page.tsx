@@ -27,7 +27,7 @@ export default function ClientsPage() {
 
   return (
     <div className="bf-enter flex flex-col gap-4">
-      <h1 className="text-[26px] font-semibold tracking-tight">{t('customers.title')}</h1>
+      <h1 className="text-[28px] font-extrabold tracking-[-0.03em]">{t('customers.title')}</h1>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('customers.search')} className="pl-10" />
