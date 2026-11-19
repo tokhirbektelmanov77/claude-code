@@ -310,6 +310,43 @@ describe('team invitations by secret link and password recovery without SMS', ()
     await staff.agent.post(`/businesses/${f.businessId}/members/${member.id}/reset-password`).expect(401);
   });
 
+  it('SECURITY: an owner cannot reset the password of staff whose account is used elsewhere (cross-tenant takeover)', async () => {
+    const ownerA = await login(app);
+    const a = await makeBusiness(ownerA.me.id);
+    const ownerB = await login(app);
+    await makeBusiness(ownerB.me.id); // the victim owns business B…
+    const asBarberInA = await prisma.businessMember.create({ data: { businessId: a.businessId, userId: ownerB.me.id, role: 'BARBER' } }); // …and also works in A
+    const r = await ownerA.agent.post(`/businesses/${a.businessId}/members/${asBarberInA.id}/reset-password`).expect(403);
+    expect(r.body.code).toBe('RESET_NOT_ALLOWED');
+    expect(r.body.temporaryPassword).toBeUndefined();
+    await ownerB.agent.get('/auth/me').expect(200); // victim untouched
+
+    const admin = await login(app);
+    await prisma.user.update({ where: { id: admin.me.id }, data: { platformRole: 'PLATFORM_ADMIN' } });
+    const adminInA = await prisma.businessMember.create({ data: { businessId: a.businessId, userId: admin.me.id, role: 'MANAGER' } });
+    await ownerA.agent.post(`/businesses/${a.businessId}/members/${adminInA.id}/reset-password`).expect(403);
+
+    const former = await login(app);
+    const disabled = await prisma.businessMember.create({ data: { businessId: a.businessId, userId: former.me.id, role: 'BARBER', status: 'DISABLED' } });
+    await ownerA.agent.post(`/businesses/${a.businessId}/members/${disabled.id}/reset-password`).expect(403);
+  });
+
+  it('SECURITY: a temporary password only allows changing it, nothing else (server-side)', async () => {
+    const owner = await login(app);
+    const f = await makeBusiness(owner.me.id);
+    const staff = await login(app);
+    const member = await prisma.businessMember.create({ data: { businessId: f.businessId, userId: staff.me.id, role: 'MANAGER' } });
+    const r = await owner.agent.post(`/businesses/${f.businessId}/members/${member.id}/reset-password`).expect(200);
+    const temp = request.agent(app.getHttpServer());
+    await temp.post('/auth/login').send({ phone: staff.phone, password: r.body.temporaryPassword }).expect(200);
+    const blocked = await temp.get(`/businesses/${f.businessId}/customers`).expect(403);
+    expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    await temp.get('/me/export').expect(403);
+    await temp.get('/auth/me').expect(200);
+    await temp.post('/auth/password').send({ currentPassword: r.body.temporaryPassword, newPassword: 'fresh-password-1' }).expect(200);
+    await temp.get(`/businesses/${f.businessId}/customers`).expect(200);
+  });
+
   it('platform admin can reset an owner password', async () => {
     const admin = await login(app);
     await prisma.user.update({ where: { id: admin.me.id }, data: { platformRole: 'PLATFORM_ADMIN' } });
@@ -319,6 +356,49 @@ describe('team invitations by secret link and password recovery without SMS', ()
     await owner.agent.get('/auth/me').expect(401); // the reset revoked the owner's sessions
     const someone = await login(app);
     await someone.agent.post(`/platform-admin/users/${admin.me.id}/reset-password`).expect(403);
+  });
+});
+
+describe('SECURITY: barber customer data minimisation', () => {
+  it('a barber cannot open another barber\'s client card by phone, by id, or by book-then-cancel', async () => {
+    const owner = await login(app);
+    const f = await makeBusiness(owner.me.id);
+    const barberUser = await login(app);
+    await prisma.businessMember.create({ data: { businessId: f.businessId, userId: barberUser.me.id, role: 'BARBER' } });
+    await prisma.barber.update({ where: { id: f.barberId }, data: { userId: barberUser.me.id } });
+    const day = futureTuesday();
+    // A client of the OTHER barber, with private staff notes.
+    const phone = nextPhone();
+    const other = await request(app.getHttpServer()).post('/public/bookings').send(guestBody({ barberId: f.barber2Id, serviceId: f.haircutId }, at(day, 12), phone, 'Чужой клиент')).expect(201);
+    await prisma.customer.update({ where: { id: other.body.customerId }, data: { notes: 'private note' } });
+    const b = barberUser.agent;
+
+    // (a) create-by-phone does not leak the existing card
+    const leak = await b.post(`/businesses/${f.businessId}/customers`).send({ name: 'x', phone }).expect(409);
+    expect(leak.body.code).toBe('CUSTOMER_EXISTS');
+    expect(JSON.stringify(leak.body)).not.toContain('private note');
+    // owner still gets it
+    await owner.agent.post(`/businesses/${f.businessId}/customers`).send({ name: 'x', phone }).expect(201);
+
+    // (b) manual booking with someone else's customerId is refused
+    await b.post(`/businesses/${f.businessId}/appointments`).send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(day, 15), customerId: other.body.customerId }).expect(404);
+    await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(404);
+
+    // (c) walk-in by phone attaches to the same card (no duplicates), but the barber sees only own visits,
+    //     and cancelling the booking removes access again.
+    const walkIn = await b.post(`/businesses/${f.businessId}/appointments`).send({ barberId: f.barberId, serviceId: f.haircutId, startsAt: at(day, 16), customer: { name: 'Чужой клиент', phone } }).expect(201);
+    expect(walkIn.body.customerId).toBe(other.body.customerId);
+    const card = await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(200);
+    expect(card.body.appointments).toHaveLength(1);
+    expect(card.body.appointments[0].id).toBe(walkIn.body.id);
+    await b.post(`/businesses/${f.businessId}/appointments/${walkIn.body.id}/cancel`).send({}).expect(200);
+    await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(404);
+    const list = await b.get(`/businesses/${f.businessId}/customers`).expect(200);
+    expect(list.body.map((c: { id: string }) => c.id)).not.toContain(other.body.customerId);
+
+    // the owner keeps the full picture
+    const full = await owner.agent.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(200);
+    expect(full.body.appointments).toHaveLength(2);
   });
 });
 

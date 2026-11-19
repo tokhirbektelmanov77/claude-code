@@ -24,9 +24,15 @@ export default function StaffPage() {
   const [edit, setEdit] = React.useState<BarberRow | 'new' | null>(null);
   const [invite, setInvite] = React.useState(false);
   const [temp, setTemp] = React.useState<{ name: string; password: string } | null>(null);
+  const [resetError, setResetError] = React.useState<string | null>(null);
   async function resetPassword(memberId: string, name: string) {
-    const r = await api<{ temporaryPassword: string }>(`/businesses/${ws.businessId}/members/${memberId}/reset-password`, { body: {} });
-    setTemp({ name, password: r.temporaryPassword });
+    setResetError(null);
+    try {
+      const r = await api<{ temporaryPassword: string }>(`/businesses/${ws.businessId}/members/${memberId}/reset-password`, { body: {} });
+      setTemp({ name, password: r.temporaryPassword });
+    } catch (e) {
+      setResetError(t(errorKey(e)));
+    }
   }
 
   return (
@@ -57,6 +63,7 @@ export default function StaffPage() {
       </section>
       <section>
         <h2 className="mb-2 text-[15px] font-semibold tracking-tight">{t('staff.team')}</h2>
+        {resetError && <Alert tone="warning" className="mb-2" data-testid="reset-error">{resetError}</Alert>}
         {members.isLoading ? <Skeleton className="h-24" /> : members.data && (
           <Card className="divide-y divide-border">
             {members.data.members.map((m) => (

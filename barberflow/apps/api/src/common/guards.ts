@@ -1,15 +1,24 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpStatus, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { MemberRole } from '@barberflow/db';
-import { forbidden, notFound, unauthorized } from './errors';
+import { ErrorCodes } from '@barberflow/shared';
+import { AppError, forbidden, notFound, unauthorized } from './errors';
 import { PrismaService } from './prisma.service';
 import type { AppRequest } from './request-context';
+
+/** Routes a user holding a temporary password may still call (to see who they are and change it). */
+const PASSWORD_CHANGE_ALLOWED = new Set(['/auth/me', '/auth/password', '/auth/logout']);
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   canActivate(ctx: ExecutionContext): boolean {
     const req = ctx.switchToHttp().getRequest<AppRequest>();
     if (!req.auth) throw unauthorized();
+    // A temporary password (issued by an owner or a platform admin) only allows changing it:
+    // whoever issued it must not be able to use the account.
+    if (req.auth.user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(req.path.replace(/\/+$/, ''))) {
+      throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.PASSWORD_CHANGE_REQUIRED, 'Change the temporary password first');
+    }
     return true;
   }
 }

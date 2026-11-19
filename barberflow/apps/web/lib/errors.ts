@@ -4,7 +4,7 @@ import type { TranslationKey } from '@barberflow/shared';
 const known = new Set([
   'SLOT_TAKEN', 'SLOT_UNAVAILABLE', 'NOT_FOUND', 'FORBIDDEN', 'UNAUTHORIZED', 'VALIDATION_ERROR', 'RATE_LIMITED',
   'INVALID_CREDENTIALS', 'ACCOUNT_LOCKED', 'PHONE_TAKEN', 'TOO_MANY_BOOKINGS', 'BUSINESS_BLOCKED', 'BOOKING_DISABLED',
-  'CANCEL_TOO_LATE', 'INVALID_STATE', 'SLUG_TAKEN', 'PLAN_LIMIT',
+  'CANCEL_TOO_LATE', 'INVALID_STATE', 'SLUG_TAKEN', 'PLAN_LIMIT', 'RESET_NOT_ALLOWED', 'PASSWORD_CHANGE_REQUIRED', 'CUSTOMER_EXISTS',
 ]);
 
 /** Maps an API error to a dictionary key; unknown failures get the generic message. */

@@ -7,7 +7,7 @@ import { BusinessRoles, CurrentAuth, Membership } from '../common/decorators';
 import type { AuthContext, MembershipContext } from '../common/request-context';
 import { notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
-import { assertBarberScope, isManager } from '../business/access';
+import { assertBarberScope, barberAppointmentScope, isManager } from '../business/access';
 import { APPOINTMENT_INCLUDE, BookingService, toAppointmentDto } from './booking.service';
 import { AvailabilityService } from './availability.service';
 
@@ -93,6 +93,13 @@ export class StaffAppointmentsController {
     @Membership() m: MembershipContext, @Headers('idempotency-key') idem?: string,
   ) {
     assertBarberScope(m, body.barberId);
+    // A barber may pick an existing card only for their own customers (same rule as the customer list).
+    if (body.customerId && !isManager(m)) {
+      const own = await this.prisma.customer.count({
+        where: { id: body.customerId, businessId, anonymizedAt: null, appointments: { some: barberAppointmentScope(m) } },
+      });
+      if (!own) throw notFound('Customer');
+    }
     const { appointment, replayed } = await this.booking.create({
       businessId,
       barberId: body.barberId,

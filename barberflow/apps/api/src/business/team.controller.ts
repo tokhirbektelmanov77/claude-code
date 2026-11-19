@@ -10,7 +10,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { hashPassword, temporaryPassword } from '@barberflow/db';
 import { newToken, sha256 } from '../auth/crypto';
-import { isManager } from './access';
+import { barberAppointmentScope, isManager, NO_BARBER } from './access';
 
 class InviteDto extends createZodDto(inviteSchema) {}
 class MemberUpdateDto extends createZodDto(memberUpdateSchema) {}
@@ -90,7 +90,12 @@ export class TeamController {
 
   /**
    * Password recovery without SMS: the owner issues a one-time temporary password to a staff member
-   * (never to another owner) and hands it over in person. The user must change it at next sign-in.
+   * and hands it over in person. The user must change it at next sign-in (enforced by AuthGuard).
+   *
+   * Security: a password is global to the user, so an owner may reset it only for someone whose whole
+   * account is inside this business — an ACTIVE non-owner member with no membership anywhere else and
+   * no platform role. Everyone else (staff of several shops, owners elsewhere, platform admins) is
+   * reset by a platform admin. Otherwise an owner could take over another tenant or the platform.
    */
   @Post('members/:memberId/reset-password')
   @HttpCode(200)
@@ -102,6 +107,12 @@ export class TeamController {
     const member = await this.prisma.businessMember.findFirst({ where: { id: memberId, businessId } });
     if (!member) throw notFound('Member');
     if (member.role === 'OWNER' || member.userId === auth.user.id) throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Cannot reset an owner password');
+    if (member.status !== 'ACTIVE') throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Member is not active');
+    const target = await this.prisma.user.findUniqueOrThrow({ where: { id: member.userId }, select: { platformRole: true, deletedAt: true } });
+    const elsewhere = await this.prisma.businessMember.count({ where: { userId: member.userId, NOT: { businessId } } });
+    if (target.deletedAt || target.platformRole !== 'USER' || elsewhere > 0) {
+      throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.RESET_NOT_ALLOWED, 'This account is used outside this business; ask platform support to reset it');
+    }
     const temp = temporaryPassword();
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: member.userId }, data: { passwordHash: await hashPassword(temp), mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } }),
@@ -112,14 +123,20 @@ export class TeamController {
   }
 
   // ---------------- Customers ----------------
-  // Data minimisation: barbers only see customers they have served or are booked with.
+  // Data minimisation: a barber sees only customers with a live (non-cancelled) appointment with them,
+  // and of those only their own visits. Owners and managers see everything in the business.
 
   private customerScope(businessId: string, m: MembershipContext) {
     return {
       businessId,
       anonymizedAt: null,
-      ...(isManager(m) ? {} : { appointments: { some: { barberId: m.barberId ?? '00000000-0000-0000-0000-000000000000' } } }),
+      ...(isManager(m) ? {} : { appointments: { some: barberAppointmentScope(m) } }),
     };
+  }
+
+  /** Which of a customer's appointments the caller may see. */
+  private visibleAppointments(m: MembershipContext) {
+    return isManager(m) ? {} : { barberId: m.barberId ?? NO_BARBER };
   }
 
   @Get('customers')
@@ -137,7 +154,7 @@ export class TeamController {
       orderBy: { updatedAt: 'desc' },
       take: 100,
       include: {
-        appointments: { select: { startsAt: true, status: true }, orderBy: { startsAt: 'desc' } },
+        appointments: { where: this.visibleAppointments(m), select: { startsAt: true, status: true }, orderBy: { startsAt: 'desc' } },
       },
     });
     return list.map((c) => ({
@@ -154,10 +171,16 @@ export class TeamController {
 
   @Post('customers')
   @BusinessRoles()
-  async createCustomer(@Param('businessId') businessId: string, @Body() body: CustomerDto) {
+  async createCustomer(@Param('businessId') businessId: string, @Body() body: CustomerDto, @Membership() m: MembershipContext) {
     if (body.phone) {
       const existing = await this.prisma.customer.findUnique({ where: { businessId_phone: { businessId, phone: body.phone } } });
-      if (existing) return existing;
+      if (existing) {
+        // Managers get the existing card. A barber must not learn someone else's client card by
+        // guessing a phone number, so they only get it if it is already in their scope.
+        const visible = isManager(m) || (await this.prisma.customer.count({ where: { id: existing.id, ...this.customerScope(businessId, m) } })) > 0;
+        if (!visible) throw new AppError(HttpStatus.CONFLICT, ErrorCodes.CUSTOMER_EXISTS, 'A customer with this phone already exists');
+        return existing;
+      }
     }
     return this.prisma.customer.create({ data: { businessId, name: body.name, phone: body.phone, notes: body.notes } });
   }
@@ -169,6 +192,7 @@ export class TeamController {
       where: { id: customerId, ...this.customerScope(businessId, m) },
       include: {
         appointments: {
+          where: this.visibleAppointments(m),
           orderBy: { startsAt: 'desc' },
           take: 100,
           select: { id: true, startsAt: true, endsAt: true, status: true, serviceName: true, priceUzs: true, barber: { select: { name: true } } },
