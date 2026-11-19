@@ -6,6 +6,7 @@ import { AppError, notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { uniqueSlug } from './slugs';
+import { lockUser } from './access';
 import { isSubscriptionUsable } from '../booking/booking.service';
 
 @Injectable()
@@ -22,6 +23,7 @@ export class BusinessService {
     const plan = await this.prisma.subscriptionPlan.findFirst({ where: { code: 'SOLO', isActive: true } })
       ?? await this.prisma.subscriptionPlan.findFirst({ where: { isActive: true }, orderBy: { priceUzs: 'asc' } });
     return this.prisma.$transaction(async (tx) => {
+      await lockUser(tx, userId); // see resetMemberPassword
       const business = await tx.business.create({
         data: {
           name: input.name,

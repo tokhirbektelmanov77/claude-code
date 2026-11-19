@@ -14,8 +14,10 @@ export class AuthGuard implements CanActivate {
   canActivate(ctx: ExecutionContext): boolean {
     const req = ctx.switchToHttp().getRequest<AppRequest>();
     if (!req.auth) throw unauthorized();
-    // A temporary password (issued by an owner or a platform admin) only allows changing it:
-    // whoever issued it must not be able to use the account.
+    // A temporary password only allows changing it (defence in depth: a leaked or written-down
+    // temporary password cannot be used for anything else). It does NOT stop the issuer, who knows it,
+    // from completing the change themselves; that is why owners may reset only accounts that live
+    // entirely inside their own business (see resetMemberPassword).
     if (req.auth.user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(req.path.replace(/\/+$/, ''))) {
       throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.PASSWORD_CHANGE_REQUIRED, 'Change the temporary password first');
     }

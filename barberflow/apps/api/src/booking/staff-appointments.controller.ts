@@ -7,7 +7,7 @@ import { BusinessRoles, CurrentAuth, Membership } from '../common/decorators';
 import type { AuthContext, MembershipContext } from '../common/request-context';
 import { notFound } from '../common/errors';
 import { PrismaService } from '../common/prisma.service';
-import { assertBarberScope, barberAppointmentScope, isManager } from '../business/access';
+import { assertBarberScope, barberAppointmentScope, isManager, NO_BARBER } from '../business/access';
 import { APPOINTMENT_INCLUDE, BookingService, toAppointmentDto } from './booking.service';
 import { AvailabilityService } from './availability.service';
 
@@ -94,7 +94,8 @@ export class StaffAppointmentsController {
   ) {
     assertBarberScope(m, body.barberId);
     // A barber may pick an existing card only for their own customers (same rule as the customer list).
-    if (body.customerId && !isManager(m)) {
+    const replay = idem ? await this.prisma.appointment.count({ where: { idempotencyKey: `${auth.user.id}:${idem.slice(0, 100)}`.slice(0, 200), businessId } }) : 0;
+    if (body.customerId && !isManager(m) && !replay) {
       const own = await this.prisma.customer.count({
         where: { id: body.customerId, businessId, anonymizedAt: null, appointments: { some: barberAppointmentScope(m) } },
       });
@@ -123,7 +124,7 @@ export class StaffAppointmentsController {
     const a = await this.appointment(businessId, id, m);
     const [events, visits] = await Promise.all([
       this.prisma.appointmentEvent.findMany({ where: { appointmentId: id }, orderBy: { createdAt: 'asc' } }),
-      this.prisma.appointment.count({ where: { customerId: a.customerId, businessId, status: 'COMPLETED' } }),
+      this.prisma.appointment.count({ where: { customerId: a.customerId, businessId, status: 'COMPLETED', ...(isManager(m) ? {} : { barberId: m.barberId ?? NO_BARBER }) } }),
     ]);
     return { ...toAppointmentDto(a), events, customerVisits: visits };
   }

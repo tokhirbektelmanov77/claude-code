@@ -373,9 +373,8 @@ describe('SECURITY: barber customer data minimisation', () => {
     await prisma.customer.update({ where: { id: other.body.customerId }, data: { notes: 'private note' } });
     const b = barberUser.agent;
 
-    // (a) create-by-phone does not leak the existing card
-    const leak = await b.post(`/businesses/${f.businessId}/customers`).send({ name: 'x', phone }).expect(409);
-    expect(leak.body.code).toBe('CUSTOMER_EXISTS');
+    // (a) standalone card creation (a phone lookup) is an owner/manager tool
+    const leak = await b.post(`/businesses/${f.businessId}/customers`).send({ name: 'x', phone }).expect(403);
     expect(JSON.stringify(leak.body)).not.toContain('private note');
     // owner still gets it
     await owner.agent.post(`/businesses/${f.businessId}/customers`).send({ name: 'x', phone }).expect(201);
@@ -391,6 +390,12 @@ describe('SECURITY: barber customer data minimisation', () => {
     const card = await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(200);
     expect(card.body.appointments).toHaveLength(1);
     expect(card.body.appointments[0].id).toBe(walkIn.body.id);
+    const detail = await b.get(`/businesses/${f.businessId}/appointments/${walkIn.body.id}`).expect(200);
+    expect(detail.body.customerVisits).toBe(0); // other barbers' visits are not counted for a barber
+    // a no-show does not keep access either
+    await prisma.appointment.update({ where: { id: walkIn.body.id }, data: { status: 'NO_SHOW' } });
+    await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(404);
+    await prisma.appointment.update({ where: { id: walkIn.body.id }, data: { status: 'CONFIRMED' } });
     await b.post(`/businesses/${f.businessId}/appointments/${walkIn.body.id}/cancel`).send({}).expect(200);
     await b.get(`/businesses/${f.businessId}/customers/${other.body.customerId}`).expect(404);
     const list = await b.get(`/businesses/${f.businessId}/customers`).expect(200);

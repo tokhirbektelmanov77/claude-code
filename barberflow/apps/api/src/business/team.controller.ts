@@ -10,7 +10,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { hashPassword, temporaryPassword } from '@barberflow/db';
 import { newToken, sha256 } from '../auth/crypto';
-import { barberAppointmentScope, isManager, NO_BARBER } from './access';
+import { barberAppointmentScope, isManager, lockUser, NO_BARBER } from './access';
 
 class InviteDto extends createZodDto(inviteSchema) {}
 class MemberUpdateDto extends createZodDto(memberUpdateSchema) {}
@@ -108,16 +108,21 @@ export class TeamController {
     if (!member) throw notFound('Member');
     if (member.role === 'OWNER' || member.userId === auth.user.id) throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Cannot reset an owner password');
     if (member.status !== 'ACTIVE') throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.FORBIDDEN, 'Member is not active');
-    const target = await this.prisma.user.findUniqueOrThrow({ where: { id: member.userId }, select: { platformRole: true, deletedAt: true } });
-    const elsewhere = await this.prisma.businessMember.count({ where: { userId: member.userId, NOT: { businessId } } });
-    if (target.deletedAt || target.platformRole !== 'USER' || elsewhere > 0) {
-      throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.RESET_NOT_ALLOWED, 'This account is used outside this business; ask platform support to reset it');
-    }
     const temp = temporaryPassword();
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: member.userId }, data: { passwordHash: await hashPassword(temp), mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } }),
-      this.prisma.session.updateMany({ where: { userId: member.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
-    ]);
+    const passwordHash = await hashPassword(temp);
+    await this.prisma.$transaction(async (tx) => {
+      // Row lock on the user: joining another business (invite accept, business create) takes the same
+      // lock, so the "account lives only in this business" check cannot go stale before the update.
+      await lockUser(tx, member.userId);
+      const target = await tx.user.findUniqueOrThrow({ where: { id: member.userId }, select: { platformRole: true, deletedAt: true } });
+      const elsewhere = await tx.businessMember.count({ where: { userId: member.userId, NOT: { businessId } } });
+      const stillActive = await tx.businessMember.count({ where: { id: member.id, status: 'ACTIVE', role: { not: 'OWNER' } } });
+      if (target.deletedAt || target.platformRole !== 'USER' || elsewhere > 0 || !stillActive) {
+        throw new AppError(HttpStatus.FORBIDDEN, ErrorCodes.RESET_NOT_ALLOWED, 'This account is used outside this business; ask platform support to reset it');
+      }
+      await tx.user.update({ where: { id: member.userId }, data: { passwordHash, mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } });
+      await tx.session.updateMany({ where: { userId: member.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    });
     await this.audit.log({ actorUserId: auth.user.id, businessId, action: 'member.password.reset', entityType: 'user', entityId: member.userId, ip });
     return { temporaryPassword: temp };
   }
@@ -169,18 +174,17 @@ export class TeamController {
     }));
   }
 
+  /**
+   * Standalone client cards are an owner/manager tool. Barbers add clients together with a booking
+   * (POST /appointments with `customer`), which keeps every card they can see tied to their own visit
+   * and prevents reading other barbers' cards by phone number.
+   */
   @Post('customers')
-  @BusinessRoles()
-  async createCustomer(@Param('businessId') businessId: string, @Body() body: CustomerDto, @Membership() m: MembershipContext) {
+  @BusinessRoles('OWNER', 'MANAGER')
+  async createCustomer(@Param('businessId') businessId: string, @Body() body: CustomerDto) {
     if (body.phone) {
       const existing = await this.prisma.customer.findUnique({ where: { businessId_phone: { businessId, phone: body.phone } } });
-      if (existing) {
-        // Managers get the existing card. A barber must not learn someone else's client card by
-        // guessing a phone number, so they only get it if it is already in their scope.
-        const visible = isManager(m) || (await this.prisma.customer.count({ where: { id: existing.id, ...this.customerScope(businessId, m) } })) > 0;
-        if (!visible) throw new AppError(HttpStatus.CONFLICT, ErrorCodes.CUSTOMER_EXISTS, 'A customer with this phone already exists');
-        return existing;
-      }
+      if (existing) return existing;
     }
     return this.prisma.customer.create({ data: { businessId, name: body.name, phone: body.phone, notes: body.notes } });
   }

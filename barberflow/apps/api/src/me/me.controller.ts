@@ -10,6 +10,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { sha256 } from '../auth/crypto';
+import { lockUser } from '../business/access';
 
 class ProfileDto extends createZodDto(updateProfileSchema) {}
 
@@ -89,6 +90,7 @@ export class MeController {
   async accept(@CurrentAuth() auth: AuthContext, @Param('token') token: string, @ReqIp() ip: string | null) {
     const inv = await this.invitation(token);
     await this.prisma.$transaction(async (tx) => {
+      await lockUser(tx, auth.user.id); // see resetMemberPassword
       // Single use: a parallel accept of the same link cannot succeed twice.
       const used = await tx.invitation.updateMany({ where: { id: inv.id, acceptedAt: null }, data: { acceptedAt: new Date() } });
       if (!used.count) throw notFound('Invitation');
