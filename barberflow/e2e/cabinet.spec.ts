@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { freshPhone, login, PHONES } from './helpers';
+import { freshPhone, login, PHONES, STAFF_DAY, STAFF_DAY_RU } from './helpers';
 
 test.describe('barber & owner cabinets (desktop)', () => {
   test('owner dashboard shows real numbers and the price-value disclaimer', async ({ page }) => {
@@ -13,19 +13,18 @@ test.describe('barber & owner cabinets (desktop)', () => {
     await login(page, PHONES.owner, '/app/calendar');
     await page.goto('/app/calendar');
     await page.getByRole('button', { name: 'Новая запись' }).first().click();
-    await page.getByTestId('manual-date').fill('2026-11-18');
+    await page.getByTestId('manual-date').fill(STAFF_DAY);
     await page.getByTestId('slot-12:00').click();
     await page.getByRole('tab', { name: 'Новый клиент' }).click();
     await page.getByTestId('manual-name').fill('Гость E2E');
     await page.getByTestId('manual-save').click();
     await expect(page.getByTestId('manual-save')).toBeHidden();
 
-    // Navigate to 18 Nov and open the appointment.
-    // The calendar opens on today (the seed runs relative to now); step forward to 18 Nov.
-    for (let i = 0; i < 31 && !(await page.getByTestId('calendar-title').textContent())?.includes('18 ноября'); i++) {
+    // The calendar opens on today; step forward to the booking day and open the appointment.
+    for (let i = 0; i < 31 && !(await page.getByTestId('calendar-title').textContent())?.includes(STAFF_DAY_RU); i++) {
       await page.getByRole('button', { name: 'Вперёд' }).click();
     }
-    await expect(page.getByTestId('calendar-title')).toContainText('18 ноября');
+    await expect(page.getByTestId('calendar-title')).toContainText(STAFF_DAY_RU);
     await page.getByTestId('calendar-appointment').filter({ hasText: 'Гость E2E' }).click();
     await expect(page.getByTestId('appointment-sheet')).toContainText('Вручную');
 

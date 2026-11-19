@@ -6,13 +6,13 @@
  *  - demo staff users use reserved fake numbers +99890000000X and the dev-only password below.
  *
  * Guarantees the demo scenario: barber "Азиз", "Мужская стрижка" 45 min / 100 000 UZS,
- * 17 Nov 2026 16:00–16:45 Asia/Tashkent is FREE to book.
+ * 16:00–16:45 Asia/Tashkent on the demo day (nearest Tuesday at least 2 days ahead) is FREE to book.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaClient, AppointmentStatus, Prisma } from '@prisma/client';
 import { hashPassword } from '../src/password';
 import { DateTime } from 'luxon';
-import { computeDaySlots, localTimeToUtc } from '@barberflow/shared';
+import { computeDaySlots, demoDay, formatDateLong, localTimeToUtc } from '@barberflow/shared';
 
 const prisma = new PrismaClient();
 const TZ = 'Asia/Tashkent';
@@ -222,12 +222,10 @@ async function main() {
     }
   }
 
-  // Demo scenario day: 17 Nov 2026 — Aziz busy 11:00–12:15 and 14:00–14:45, 16:00 stays FREE.
-  const DEMO_DAY = '2026-11-17';
-  if (DEMO_DAY >= today) {
-    await appt(aziz.id, services.combo, localTimeToUtc(DEMO_DAY, hm(11), TZ), 'CONFIRMED', c(3));
-    await appt(aziz.id, services.haircut, localTimeToUtc(DEMO_DAY, hm(14), TZ), 'CONFIRMED', c(4), 'MANUAL');
-  }
+  // Demo scenario day (moves forward with time) — Aziz busy 11:00–12:15 and 14:00–14:45, 16:00 stays FREE.
+  const DEMO_DAY = demoDay(new Date(), TZ);
+  await appt(aziz.id, services.combo, localTimeToUtc(DEMO_DAY, hm(11), TZ), 'CONFIRMED', c(3));
+  await appt(aziz.id, services.haircut, localTimeToUtc(DEMO_DAY, hm(14), TZ), 'CONFIRMED', c(4), 'MANUAL');
   // Future booking for the demo client (visible in "Мои записи").
   const clientDay = now.plus({ days: 3 }).toISODate()!;
   // Its secret manage link is printed below (in real life the client receives it right after booking).
@@ -288,7 +286,8 @@ async function main() {
   console.log('BARBERFLOW demo data ready');
   console.log(`  Business:      BARBERFLOW DEMO  →  /s/barberflow-demo   (barber link: /b/aziz)`);
   console.log(`  Appointments:  ${n}`);
-  console.log(`  Demo slot 17.11.2026 16:00–16:45 (Азиз, Мужская стрижка, 100 000 UZS): ${free ? 'FREE ✓' : 'NOT AVAILABLE (date passed or outside horizon)'}`);
+  console.log(`  Demo slot ${formatDateLong(DEMO_DAY, 'ru', TZ)} (${DEMO_DAY}) 16:00–16:45 (Азиз, Мужская стрижка, 100 000 UZS): ${free ? 'FREE ✓' : 'NOT AVAILABLE'}`);
+  console.log(`  Open: /b/aziz → Мужская стрижка → ${DEMO_DAY} → 16:00`);
   console.log(`  Staff logins (password for all: ${DEMO_PASSWORD} — development only):`);
   console.log(`    Platform admin  ${PHONES.admin}`);
   console.log(`    Owner           ${PHONES.owner}`);

@@ -194,3 +194,13 @@ export function utcRangeForDates(dates: string[], timezone: string): { from: Dat
     to: localDay(sorted[sorted.length - 1], timezone).plus({ days: 1 }).toUTC().toJSDate(),
   };
 }
+
+/**
+ * Demo scenario day: the nearest Tuesday at least 2 days ahead (local date in `timezone`).
+ * Always beyond the minimum lead time and inside a 30-day booking horizon, so the demo never expires.
+ */
+export function demoDay(now: Date = new Date(), timezone = 'Asia/Tashkent'): string {
+  let d = todayIn(timezone, now).plus({ days: 2 });
+  while (d.weekday !== 2) d = d.plus({ days: 1 });
+  return d.toISODate()!;
+}

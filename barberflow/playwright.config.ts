@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * E2E against the real stack (NestJS API + Next.js + PostgreSQL with demo seed).
  * Start everything with `pnpm dev` (or let webServer start it), then `pnpm test:e2e`.
- * globalSetup/teardown re-run the idempotent demo seed so the 17.11.2026 16:00 demo slot stays free.
+ * globalSetup/teardown re-run the idempotent demo seed so the demo-day 16:00 slot stays free (see demoDay in packages/shared).
  */
 export default defineConfig({
   testDir: './e2e',

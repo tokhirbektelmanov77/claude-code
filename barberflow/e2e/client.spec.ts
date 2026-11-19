@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
-import { fillGuest, freshPhone } from './helpers';
+import { DEMO_DATE_RU, DEMO_DAY, demoAt, fillGuest, freshPhone, pickDay } from './helpers';
 
 test.describe('client booking without registration (mobile)', () => {
-  test('demo scenario: Азиз · Мужская стрижка · 17.11.2026 16:00–16:45 · 100 000 сум — name + phone only', async ({ page }) => {
+  test(`demo scenario: Азиз · Мужская стрижка · ${DEMO_DAY} 16:00–16:45 · 100 000 сум — name + phone only`, async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('cta-demo').click();
     await expect(page.getByTestId('step-title')).toHaveText('Выберите услугу');
     await page.getByText('Мужская стрижка').first().click();
-    await page.getByTestId('day-2026-11-17').click();
+    await pickDay(page, DEMO_DAY);
     await page.getByTestId('slot-16:00').click();
     await page.getByTestId('time-continue').click();
-    await expect(page.getByTestId('summary-when')).toHaveText('17 ноября 2026, 16:00–16:45');
+    await expect(page.getByTestId('summary-when')).toHaveText(`${DEMO_DATE_RU}, 16:00–16:45`);
     await expect(page.getByTestId('summary-price')).toHaveText('100 000 сум');
     await expect(page.getByText('Оплата барберу на месте, после визита.')).toBeVisible();
 
@@ -21,7 +21,7 @@ test.describe('client booking without registration (mobile)', () => {
 
     await expect(page.getByTestId('success-title')).toHaveText('Вы успешно записались!');
     await expect(page).toHaveURL(/\/a\/[A-Za-z0-9_-]{43}\?new=1$/);
-    await expect(page.getByTestId('detail-date')).toHaveText('17 ноября 2026');
+    await expect(page.getByTestId('detail-date')).toHaveText(DEMO_DATE_RU);
     await expect(page.getByTestId('detail-time')).toHaveText('16:00–16:45');
     await expect(page.getByTestId('detail-price')).toHaveText('100 000 сум');
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('add-to-calendar').click()]);
@@ -35,7 +35,7 @@ test.describe('client booking without registration (mobile)', () => {
     // The slot is gone for everyone else.
     await page.goto('/b/aziz');
     await page.getByText('Мужская стрижка').first().click();
-    await page.getByTestId('day-2026-11-17').click();
+    await pickDay(page, DEMO_DAY);
     await expect(page.getByTestId('slot-15:15')).toBeVisible();
     for (const t of ['15:30', '15:45', '16:00', '16:15', '16:30']) await expect(page.getByTestId(`slot-${t}`)).toHaveCount(0);
     await expect(page.getByTestId('slot-16:45')).toBeVisible();
@@ -44,7 +44,7 @@ test.describe('client booking without registration (mobile)', () => {
   test('time taken by someone else while confirming → offered to pick another', async ({ page, request }) => {
     await page.goto('/b/aziz');
     await page.getByText('Мужская стрижка').first().click();
-    await page.getByTestId('day-2026-11-17').click();
+    await pickDay(page, DEMO_DAY);
     await page.getByTestId('slot-18:00').click();
     await page.getByTestId('time-continue').click();
     await fillGuest(page, 'Опоздавший');
@@ -54,7 +54,7 @@ test.describe('client booking without registration (mobile)', () => {
     const aziz = biz.barbers.find((b: { slug: string }) => b.slug === 'aziz');
     const haircut = biz.services.find((s: { name: string }) => s.name === 'Мужская стрижка');
     const booked = await request.post('/api/public/bookings', {
-      data: { barberId: aziz.id, serviceId: haircut.id, startsAt: '2026-11-17T13:00:00.000Z', customerName: 'Быстрый', phone: freshPhone(), consent: true },
+      data: { barberId: aziz.id, serviceId: haircut.id, startsAt: demoAt(18), customerName: 'Быстрый', phone: freshPhone(), consent: true },
     });
     expect(booked.status()).toBe(201);
 
@@ -67,7 +67,7 @@ test.describe('client booking without registration (mobile)', () => {
   test('the secret link works on another device: reschedule and cancel without an account', async ({ page, browser }) => {
     await page.goto('/b/aziz');
     await page.getByText('Оформление бороды').click();
-    await page.getByTestId('day-2026-11-17').click();
+    await pickDay(page, DEMO_DAY);
     await page.getByTestId('slot-17:00').click();
     await page.getByTestId('time-continue').click();
     await fillGuest(page, 'Переносящий');
@@ -79,7 +79,7 @@ test.describe('client booking without registration (mobile)', () => {
     const other = await browser.newPage();
     await other.goto(link);
     await other.getByTestId('reschedule').click();
-    await other.getByTestId('day-2026-11-17').click();
+    await pickDay(other, DEMO_DAY);
     await other.getByTestId('slot-19:00').click();
     await other.getByTestId('reschedule-submit').click();
     await expect(other.getByText('Запись перенесена')).toBeVisible();

@@ -129,3 +129,13 @@ describe('workingDatesInHorizon', () => {
     expect(dates).toEqual(['2026-11-17']);
   });
 });
+
+describe('demoDay', () => {
+  it('is the nearest Tuesday at least two days ahead', async () => {
+    const { demoDay } = await import('./availability');
+    expect(demoDay(new Date('2026-11-15T06:00:00Z'))).toBe('2026-11-17'); // Sun → Tue
+    expect(demoDay(new Date('2026-11-16T06:00:00Z'))).toBe('2026-11-24'); // Mon → next Tue (2+ days)
+    expect(demoDay(new Date('2026-11-19T06:00:00Z'))).toBe('2026-11-24'); // Thu → Tue
+    expect(demoDay(new Date('2026-11-29T20:00:00Z'))).toBe('2026-12-08'); // Mon 01:00 Tashkent → Tue 8 Dec
+  });
+});

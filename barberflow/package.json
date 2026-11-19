@@ -25,6 +25,7 @@
     "admin:create": "pnpm --filter @barberflow/db admin:create"
   },
   "devDependencies": {
+    "@barberflow/shared": "workspace:*",
     "@eslint/js": "9.39.5",
     "@next/eslint-plugin-next": "16.4.6",
     "@playwright/test": "1.63.0",
